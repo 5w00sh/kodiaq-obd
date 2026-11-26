@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<title>Kodiaq OBD</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<style>
+  :root{--bg:#0b0f14;--card:#141b23;--line:#223040;--txt:#e8eef4;--mut:#8a9bab;--acc:#4fb3ff;--ok:#3ecf8e;--warn:#ffb020;--bad:#ff5c5c}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:max(12px,env(safe-area-inset-top)) 12px 24px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  h1{font-size:18px;margin:0;flex:1}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--bad)}
+  .dot.on{background:var(--ok)} .dot.busy{background:var(--warn)}
+  #status{color:var(--mut);font-size:13px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  button{flex:1;min-width:90px;background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:12px 10px;font-size:15px;font-weight:600}
+  button.pri{background:var(--acc);color:#001523;border-color:var(--acc)}
+  button.danger{border-color:var(--bad);color:var(--bad)}
+  button:disabled{opacity:.4}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+  .tile.big{grid-column:span 2}
+  .lab{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  .val{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums}
+  .big .val{font-size:64px;line-height:1.05}
+  .unit{font-size:14px;color:var(--mut);margin-left:4px;font-weight:500}
+  .na .val{color:#3a4a5a}
+  .hot .val{color:var(--warn)} .crit .val{color:var(--bad)}
+  section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+  section h2{font-size:14px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+  #dtcs div{padding:6px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  #dtcs div:last-child{border:0}
+  pre{margin:0;max-height:180px;overflow:auto;font-size:11px;color:var(--mut);white-space:pre-wrap}
+  .note{color:var(--mut);font-size:12px}
+  .warnbox{background:#2a1d05;border:1px solid var(--warn);color:#ffd27a;border-radius:10px;padding:10px;font-size:13px;margin-bottom:12px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>Kodiaq OBD</h1>
+  <span id="status">Not connected</span>
+</header>
+
+<div class="warnbox" id="nosupport">
+  This browser can't reach Bluetooth serial devices. Open this page in <b>Chrome on your Pixel</b>, served over <b>https://</b> (not inside another app or an embedded preview). Demo mode still works.
+</div>
+
+<div class="row">
+  <button class="pri" id="btnConnect">Connect</button>
+  <button id="btnDemo">Demo</button>
+  <button id="btnStop" disabled>Stop</button>
+</div>
+
+<div class="grid">
+  <div class="tile big na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div></div>
+  <div class="tile na" id="t_rpm"><div class="lab">RPM</div><div class="val">–</div></div>
+  <div class="tile na" id="t_coolant"><div class="lab">Coolant</div><div class="val">–<span class="unit">°C</span></div></div>
+  <div class="tile na" id="t_load"><div class="lab">Engine load</div><div class="val">–<span class="unit">%</span></div></div>
+  <div class="tile na" id="t_throttle"><div class="lab">Throttle</div><div class="val">–<span class="unit">%</span></div></div>
+  <div class="tile na" id="t_iat"><div class="lab">Intake air</div><div class="val">–<span class="unit">°C</span></div></div>
+  <div class="tile na" id="t_volt"><div class="lab">Battery</div><div class="val">–<span class="unit">V</span></div></div>
+</div>
+
+<section>
+  <h2>Fuel economy (UK mpg)</h2>
+  <div class="grid" style="margin:0">
+    <div class="tile big na" id="t_mpgTrip"><div class="lab">Trip average</div><div class="val">–<span class="unit">mpg</span></div></div>
+    <div class="tile na" id="t_mpgInst"><div class="lab">Instant</div><div class="val">–<span class="unit">mpg</span></div></div>
+    <div class="tile na" id="t_lph"><div class="lab">Fuel flow</div><div class="val">–<span class="unit">L/h</span></div></div>
+    <div class="tile na" id="t_miles"><div class="lab">Trip miles</div><div class="val">–<span class="unit">mi</span></div></div>
+    <div class="tile na" id="t_litres"><div class="lab">Trip fuel</div><div class="val">–<span class="unit">L</span></div></div>
+    <div class="tile na" id="t_cost" style="grid-column:span 2"><div class="lab">Trip cost · per mile</div><div class="val">–</div></div>
+  </div>
+  <p class="note" id="fuelMethod">Fuel source: detected on connect.</p>
+</section>
+
+<section>
+  <h2>Fill-ups &amp; calibration</h2>
+  <div class="row">
+    <button id="btnFill">I just brimmed the tank</button>
+    <button id="btnPrice">Diesel price</button>
+  </div>
+  <div class="note" id="fillInfo"></div>
+  <div id="history" style="margin-top:8px"></div>
+</section>
+
+<section>
+  <h2>Fault codes</h2>
+  <div class="row">
+    <button id="btnRead" disabled>Read codes</button>
+    <button class="danger" id="btnClear" disabled>Clear codes</button>
+  </div>
+  <div id="dtcs" class="note">Not read yet.</div>
+</section>
+
+<section>
+  <h2>Trip log</h2>
+  <div class="row">
+    <button id="btnCsv" disabled>Download CSV</button>
+  </div>
+  <div class="note" id="logInfo">0 samples. Logs ~1 sample/second while connected.</div>
+</section>
+
+<section>
+  <h2>Adapter log</h2>
+  <pre id="log"></pre>
+</section>
+
+<p class="note">Fit the dongle, pair it in Android Bluetooth settings first (PIN usually 1234 or 0000), ignition on, then Connect. Read-only except "Clear codes". Set it up before you drive, don't touch it while driving.</p>
+
+<script>
+const SPP = '00001101-0000-1000-8000-00805f9b34fb';
+const $ = id => document.getElementById(id);
+const enc = new TextEncoder(), dec = new TextDecoder();
+let port, reader, writer, buf = '', running = false, demo = false;
+let samples = [], latest = {}, lastLog = 0;
+const supported = 'serial' in navigator;
+if (!supported) $('nosupport').style.display = 'block';
+
+function log(s){ const p=$('log'); p.textContent += s + '\n'; if (p.textContent.length>8000) p.textContent=p.textContent.slice(-6000); p.scrollTop=p.scrollHeight; }
+function setStatus(txt, state){ $('status').textContent = txt; $('dot').className = 'dot ' + (state||''); }
+function ui(connected){
+  $('btnConnect').disabled = connected; $('btnDemo').disabled = connected;
+  $('btnStop').disabled = !connected;
+  $('btnRead').disabled = !connected; $('btnClear').disabled = !connected;
+}
+
+// ---------- ELM327 transport ----------
+async function readUntilPrompt(timeout=2500){
+  const t0 = Date.now();
+  while (true){
+    const i = buf.indexOf('>');
+    if (i >= 0){ const out = buf.slice(0,i); buf = buf.slice(i+1); return out; }
+    if (Date.now()-t0 > timeout) throw new Error('timeout');
+    const r = await Promise.race([reader.read(), new Promise(res=>setTimeout(()=>res({timeout:true}), timeout))]);
+    if (r.timeout) throw new Error('timeout');
+    if (r.done) throw new Error('port closed');
+    buf += dec.decode(r.value);
+  }
+}
+async function cmd(c, timeout){
+  await writer.write(enc.encode(c + '\r'));
+  const raw = await readUntilPrompt(timeout);
+  const lines = raw.split(/[\r\n]+/).map(l=>l.trim()).filter(l=>l && l!==c && !/^SEARCHING/i.test(l));
+  return lines;
+}
+
+async function initElm(){
+  setStatus('Initialising…','busy');
+  for (const c of ['ATZ','ATE0','ATL0','ATS0','ATH0','ATSP0']){
+    try { const r = await cmd(c, c==='ATZ'?5000:2500); log(c+' → '+r.join(' | ')); }
+    catch(e){ log(c+' → '+e.message); if (c==='ATZ') throw e; }
+  }
+  const p = await cmd('0100', 8000); // first query triggers protocol search
+  log('0100 → '+p.join(' | '));
+  if (!p.some(l=>/^4100/i.test(l))) throw new Error('No reply from car ECU (is ignition on?)');
+  const proto = await cmd('ATDPN'); log('Protocol → '+proto.join(' '));
+}
+
+// ---------- PIDs ----------
+const PIDS = {
+  speed:   {pid:'0D', fast:true,  f:b=>b[0]},
+  rpm:     {pid:'0C', fast:true,  f:b=>((b[0]*256)+b[1])/4},
+  throttle:{pid:'11', fast:true,  f:b=>b[0]*100/255},
+  load:    {pid:'04', fast:false, f:b=>b[0]*100/255},
+  coolant: {pid:'05', fast:false, f:b=>b[0]-40},
+  iat:     {pid:'0F', fast:false, f:b=>b[0]-40},
+};
+const unsupported = new Set();
+
+async function readPid(name){
+  const {pid,f} = PIDS[name];
+  const lines = await cmd('01'+pid);
+  const hit = lines.map(l=>l.replace(/\s/g,'')).find(l=>l.toUpperCase().startsWith('41'+pid));
+  if (!hit){ if (lines.some(l=>/NO DATA|\?/i.test(l))) unsupported.add(name); return null; }
+  const bytes = hit.slice(4).match(/../g).map(h=>parseInt(h,16));
+  return f(bytes);
+}
+async function readVolt(){
+  const r = await cmd('ATRV'); const m = r.join('').match(/([\d.]+)V/i);
+  return m ? parseFloat(m[1]) : null;
+}
+
+
+// ---------- fuel economy ----------
+const LKM_TO_MPG = 282.481;            // UK mpg = 282.481 / (L/100km)
+const KM_PER_MILE = 1.609344, L_PER_GAL = 4.54609;
+const DIESEL_AFR = 14.5, DIESEL_KG_PER_L = 0.832;
+let supportedPids = new Set(), fuelMethod = null;
+let trip = {km:0, L:0, idleL:0, t0:null}, lastInt = null, curLph = null;
+const store = {
+  get(k,d){ try{ const v = localStorage.getItem('kobd_'+k); return v==null ? d : JSON.parse(v); }catch{ return d; } },
+  set(k,v){ try{ localStorage.setItem('kobd_'+k, JSON.stringify(v)); }catch{} }
+};
+let cal = store.get('cal', 1.0);                     // multiplier: pump litres / OBD litres
+let sinceFill = store.get('sinceFill', {km:0, L:0});  // raw (uncalibrated) since last brim
+let price = store.get('price', 1.45);                 // £ per litre
+
+async function detectSupport(){
+  for (const base of ['00','20','40','60','80','A0']){
+    let lines; try{ lines = await cmd('01'+base, 4000); }catch{ break; }
+    const hit = lines.map(l=>l.replace(/\s/g,'')).find(l=>l.toUpperCase().startsWith('41'+base));
+    if (!hit) break;
+    const bits = parseInt(hit.slice(4,12),16) >>> 0, b0 = parseInt(base,16);
+    for (let i=0;i<32;i++) if (bits & (1<<(31-i))) supportedPids.add((b0+i+1).toString(16).toUpperCase().padStart(2,'0'));
+    if (!(bits & 1)) break;
+  }
+  log('Supported PIDs: '+[...supportedPids].join(' '));
+  if (supportedPids.has('5E')) fuelMethod = 'rate5E';
+  else if (supportedPids.has('9D')) fuelMethod = 'rate9D';
+  else if (supportedPids.has('10') && (supportedPids.has('24') || supportedPids.has('34'))) fuelMethod = 'mafLambda';
+  else fuelMethod = null;
+  const txt = {rate5E:'ECU fuel rate (PID 5E), best', rate9D:'ECU fuel rate (PID 9D), best',
+    mafLambda:'Airflow × lambda (PIDs 10+24/34), estimate, calibrate with fill-ups'}[fuelMethod]
+    || 'None: this car does not report fuel use over standard OBD. Use fill-ups only.';
+  $('fuelMethod').textContent = 'Fuel source: '+txt+'. Calibration ×'+cal.toFixed(3)+'.';
+}
+async function rawPid(pid){
+  const lines = await cmd('01'+pid);
+  const hit = lines.map(l=>l.replace(/\s/g,'')).find(l=>l.toUpperCase().startsWith('41'+pid));
+  return hit ? hit.slice(4).match(/../g).map(h=>parseInt(h,16)) : null;
+}
+async function readFuelLph(){
+  if (fuelMethod==='rate5E'){ const b = await rawPid('5E'); return b ? ((b[0]*256)+b[1])/20 : null; }
+  if (fuelMethod==='rate9D'){ const b = await rawPid('9D'); if (!b) return null; const gps = ((b[0]*256)+b[1])/50; return gps*3.6/DIESEL_KG_PER_L; }
+  if (fuelMethod==='mafLambda'){
+    const m = await rawPid('10'); const l = await rawPid(supportedPids.has('24') ? '24' : '34');
+    if (!m || !l) return null;
+    const maf = ((m[0]*256)+m[1])/100;                 // g/s air
+    const lambda = (2/65536)*((l[0]*256)+l[1]);        // equivalence ratio
+    if (lambda < 0.7 || lambda > 8) return null;       // implausible / overrun cut
+    return (maf/(DIESEL_AFR*lambda))*3.6/DIESEL_KG_PER_L;
+  }
+  return null;
+}
+function integrate(speedKmh, lphRaw){
+  const now = performance.now();
+  if (lastInt==null || trip.t0==null){ lastInt = now; trip.t0 = trip.t0 || Date.now(); return; }
+  const dt = (now-lastInt)/3600000; lastInt = now;    // hours
+  if (dt <= 0 || dt > 0.003) return;                  // skip gaps > ~10s (e.g. while reading codes)
+  const dkm = (speedKmh||0)*dt, dLraw = (lphRaw||0)*dt;
+  trip.km += dkm; trip.L += dLraw*cal; if ((speedKmh||0) < 2) trip.idleL += dLraw*cal;
+  sinceFill.km += dkm; sinceFill.L += dLraw;
+}
+function mpg(km, L){ return (km>0.05 && L>0) ? LKM_TO_MPG/((L/km)*100) : null; }
+function renderFuel(speedKmh){
+  const lph = curLph==null ? null : curLph*cal;
+  show('lph', lph, 1);
+  const inst = (lph!=null && speedKmh>3) ? LKM_TO_MPG/((lph/speedKmh)*100) : null;
+  show('mpgInst', inst==null ? null : Math.min(inst, 199));
+  show('mpgTrip', mpg(trip.km, trip.L), 1);
+  show('miles', trip.km/KM_PER_MILE, 1);
+  show('litres', trip.L, 2);
+  const c = $('t_cost'); const v = c.querySelector('.val');
+  if (trip.L > 0){ c.classList.remove('na'); const cost = trip.L*price; const ppm = trip.km>0.1 ? (cost/(trip.km/KM_PER_MILE))*100 : null;
+    v.textContent = '£'+cost.toFixed(2)+(ppm!=null ? ' · '+ppm.toFixed(1)+'p' : ''); }
+  latest.mpgTrip = mpg(trip.km, trip.L); latest.lph = lph;
+  if (Math.random() < 0.05) store.set('sinceFill', sinceFill);
+}
+function fillInfo(){
+  const m = sinceFill.km/KM_PER_MILE;
+  $('fillInfo').innerHTML = 'Since last brim: <b>'+m.toFixed(1)+' mi</b>, OBD fuel '+(sinceFill.L*cal).toFixed(1)+' L'
+    + (mpg(sinceFill.km, sinceFill.L*cal) ? ' ≈ <b>'+mpg(sinceFill.km, sinceFill.L*cal).toFixed(1)+' mpg</b>' : '')
+    + '<br>Calibration ×'+cal.toFixed(3)+' · Diesel £'+price.toFixed(3)+'/L';
+  const h = store.get('fills', []);
+  $('history').innerHTML = h.length ? '<div class="note">Fill-ups (real mpg from the pump):</div>' + h.slice(-8).reverse().map(f=>
+    `<div class="note">${f.date}: ${f.miles.toFixed(0)} mi, ${f.litres.toFixed(1)} L → <b style="color:var(--txt)">${f.mpg.toFixed(1)} mpg</b>${f.obdMpg?' (OBD said '+f.obdMpg.toFixed(1)+')':''}</div>`).join('') : '';
+}
+function brim(){
+  const first = !store.get('fillStarted', false);
+  if (first){
+    if (!confirm('Start fill-up tracking now?\n\nFill to the first click every time. The NEXT brim gives your first real mpg.')) return;
+    sinceFill = {km:0, L:0}; store.set('sinceFill', sinceFill); store.set('fillStarted', true); fillInfo(); return;
+  }
+  const lit = parseFloat(prompt('Litres added at the pump (brimmed to first click):', ''));
+  if (!(lit > 0)) return;
+  const miles = sinceFill.km/KM_PER_MILE;
+  const real = (miles/(lit/L_PER_GAL));
+  const obdL = sinceFill.L;                        // raw OBD litres over same distance
+  const obdMpg = mpg(sinceFill.km, obdL*cal);
+  if (obdL > 2 && miles > 50){                     // only calibrate on meaningful tanks
+    const newCal = lit/obdL;
+    cal = Math.abs(newCal-cal) > 0.5 ? newCal : (cal*0.5 + newCal*0.5); // smooth after first
+    store.set('cal', cal);
+  }
+  const h = store.get('fills', []);
+  h.push({date:new Date().toISOString().slice(0,10), miles, litres:lit, mpg:real, obdMpg});
+  store.set('fills', h);
+  if (miles < 50) alert('Only '+miles.toFixed(0)+' miles were logged by the app since the last brim. Real mpg recorded, but calibration skipped (drive with the app connected for the whole tank).');
+  sinceFill = {km:0, L:0}; store.set('sinceFill', sinceFill); fillInfo();
+}
+function setPrice(){
+  const p = parseFloat(prompt('Diesel price in £ per litre (e.g. 1.459):', price));
+  if (p > 0.5 && p < 5){ price = p; store.set('price', p); fillInfo(); }
+}
+function saveTrip(){
+  if (trip.km < 0.3) return;
+  const h = store.get('trips', []);
+  h.push({date:new Date(trip.t0).toISOString(), miles:trip.km/KM_PER_MILE, litres:trip.L, mpg:mpg(trip.km,trip.L), idleL:trip.idleL});
+  store.set('trips', h.slice(-200)); store.set('sinceFill', sinceFill);
+}
+
+// ---------- rendering ----------
+function show(name, v, dp){
+  const t = $('t_'+name); if (!t) return;
+  const val = t.querySelector('.val'); const unit = val.querySelector('.unit');
+  t.classList.toggle('na', v==null);
+  if (name==='speed' && v!=null) v = v/KM_PER_MILE;
+  const txt = v==null ? '–' : (dp!=null ? v.toFixed(dp) : name==='volt' ? v.toFixed(1) : Math.round(v).toString());
+  val.textContent = txt; if (unit) val.appendChild(unit);
+  t.classList.remove('hot','crit');
+  if (name==='coolant' && v!=null){ if (v>=110) t.classList.add('crit'); else if (v>=104) t.classList.add('hot'); }
+  if (name==='volt' && v!=null){ if (v<11.8) t.classList.add('crit'); else if (v<12.2) t.classList.add('hot'); }
+  if (name==='rpm' && v!=null && v>=4500) t.classList.add('hot');
+}
+function record(){
+  const now = Date.now(); if (now-lastLog < 1000) return; lastLog = now;
+  samples.push({t:new Date(now).toISOString(), ...latest});
+  $('logInfo').textContent = samples.length+' samples. Logs ~1 sample/second while connected.';
+  $('btnCsv').disabled = false;
+}
+
+// ---------- main loop ----------
+async function loop(){
+  let tick = 0;
+  while (running){
+    try{
+      if (demo){ demoStep(); await new Promise(r=>setTimeout(r,250)); }
+      else {
+        for (const [name,p] of Object.entries(PIDS)){
+          if (!running) break;
+          if (unsupported.has(name)) { show(name,null); continue; }
+          if (!p.fast && tick%5) continue;
+          const v = await readPid(name); latest[name]=v; show(name,v);
+        }
+        if (fuelMethod){ curLph = await readFuelLph(); }
+        integrate(latest.speed, curLph); renderFuel(latest.speed||0);
+        if (tick%10===0){ const v = await readVolt(); latest.volt=v; show('volt',v); }
+      }
+      record(); tick++;
+    }catch(e){
+      log('Error: '+e.message);
+      if (/closed|lost|disconnect/i.test(e.message)){ await stop('Connection lost'); return; }
+      await new Promise(r=>setTimeout(r,500));
+    }
+  }
+}
+
+// ---------- fault codes ----------
+function decodeDtc(hex4){
+  const n = parseInt(hex4,16); if (!n) return null;
+  const sys = 'PCBU'[(n>>14)&3];
+  return sys + ((n>>12)&3) + hex4.slice(1).toUpperCase();
+}
+function parseDtcs(lines, mode){
+  // Join multi-frame CAN replies: drop byte-count line, strip "0:" "1:" prefixes
+  let hex = lines.filter(l=>!/^[0-9A-F]{3}$/i.test(l)).map(l=>l.replace(/^\d:/,'').replace(/\s/g,'')).join('');
+  const i = hex.toUpperCase().indexOf(mode); if (i<0) return [];
+  hex = hex.slice(i+2);
+  const proto = (window._proto||'');
+  if (/^A?[6-9AB]$/i.test(proto)) hex = hex.slice(2); // CAN: count byte first
+  const codes = [];
+  for (let k=0; k+4<=hex.length; k+=4){ const d = decodeDtc(hex.slice(k,k+4)); if (d) codes.push(d); }
+  return [...new Set(codes)];
+}
+async function readCodes(){
+  if (demo){ $('dtcs').innerHTML = '<div>P0401 (stored), demo</div>'; return; }
+  running = false; await new Promise(r=>setTimeout(r,400));
+  try{
+    window._proto = (await cmd('ATDPN')).join('').trim();
+    const stored = parseDtcs(await cmd('03',5000),'43');
+    const pending = parseDtcs(await cmd('07',5000),'47');
+    const out = [...stored.map(c=>c+' (stored)'), ...pending.map(c=>c+' (pending)')];
+    $('dtcs').innerHTML = out.length ? out.map(c=>`<div>${c} · <a style="color:var(--acc)" target="_blank" rel="noopener" href="https://www.google.com/search?q=${encodeURIComponent('Skoda Kodiaq '+c.split(' ')[0])}">look up</a></div>`).join('') : '<div>No fault codes 👍</div>';
+    log('Codes: '+(out.join(', ')||'none'));
+  }catch(e){ $('dtcs').textContent = 'Read failed: '+e.message; }
+  running = true; loop();
+}
+async function clearCodes(){
+  if (!confirm('Clear all fault codes and switch off the engine warning light?\n\nThis also resets emissions readiness monitors (can matter before an MOT). Engine OFF, ignition ON.')) return;
+  if (demo){ $('dtcs').innerHTML='<div>Cleared (demo)</div>'; return; }
+  running = false; await new Promise(r=>setTimeout(r,400));
+  try{ const r = await cmd('04',5000); log('04 → '+r.join(' ')); $('dtcs').innerHTML = r.some(l=>/^44/.test(l)) ? '<div>Cleared. Re-read to confirm.</div>' : '<div>Car refused the clear (engine running?)</div>'; }
+  catch(e){ $('dtcs').textContent = 'Clear failed: '+e.message; }
+  running = true; loop();
+}
+
+// ---------- connect / stop ----------
+let wakeLock;
+async function keepAwake(){ try{ wakeLock = await navigator.wakeLock?.request('screen'); }catch{} }
+async function connect(){
+  if (!supported){ alert('Web Serial not available here, see the note at the top.'); return; }
+  try{
+    setStatus('Choose the adapter…','busy');
+    port = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds:[SPP], filters:[{bluetoothServiceClassId:SPP}] });
+    await port.open({ baudRate: 38400 });
+    writer = port.writable.getWriter(); reader = port.readable.getReader(); buf='';
+    await initElm();
+    await detectSupport();
+    trip = {km:0, L:0, idleL:0, t0:null}; lastInt = null;
+    setStatus('Connected','on'); ui(true); running = true; demo = false; keepAwake(); loop();
+  }catch(e){ log('Connect failed: '+e.message); await stop('Not connected'); }
+}
+async function stop(msg){
+  if (demo && _sfBackup){ sinceFill = _sfBackup; _sfBackup = null; }
+  if (!demo) saveTrip();
+  running = false; demo = false;
+  try{ reader?.releaseLock(); }catch{} try{ writer?.releaseLock(); }catch{}
+  try{ await port?.close(); }catch{}
+  port = reader = writer = null; ui(false); setStatus(msg||'Stopped'); wakeLock?.release?.();
+}
+
+// ---------- demo ----------
+let ds = 0;
+function demoStep(){
+  ds += 0.25;
+  const sp = Math.max(0, 60 + 40*Math.sin(ds/8));
+  latest = { speed:sp, rpm:800+sp*28+Math.random()*60, throttle:15+12*Math.sin(ds/3)+5, load:30+20*Math.sin(ds/4)+20,
+             coolant:Math.min(92, 40+ds*2), iat:18+Math.random(), volt:14.1+Math.random()*0.1 };
+  for (const [k,v] of Object.entries(latest)) show(k,v);
+  curLph = 0.6 + sp*0.055 + Math.max(0,latest.throttle-15)*0.15; integrate(sp, curLph); renderFuel(sp);
+}
+let _sfBackup=null;
+function startDemo(){ _sfBackup = {...sinceFill}; trip = {km:0, L:0, idleL:0, t0:null}; lastInt = null; $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
+
+// ---------- CSV ----------
+function csv(){
+  const cols = ['t','speed','rpm','throttle','load','coolant','iat','volt','lph','mpgTrip'];
+  const rows = [cols.join(',')].concat(samples.map(s=>cols.map(c=>s[c]==null?'':(typeof s[c]==='number'?s[c].toFixed(2):s[c])).join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
+  a.download = 'kodiaq-obd-'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv'; a.click();
+}
+
+$('btnConnect').onclick = connect;
+$('btnDemo').onclick = startDemo;
+$('btnStop').onclick = ()=>stop('Stopped');
+$('btnRead').onclick = readCodes;
+$('btnClear').onclick = clearCodes;
+$('btnCsv').onclick = csv;
+$('btnFill').onclick = brim;
+$('btnPrice').onclick = setPrice;
+fillInfo();
+window.addEventListener('pagehide', ()=>{ store.set('sinceFill', sinceFill); });
+if ('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && running) keepAwake(); });
+</script>
+</body>
+</html>
