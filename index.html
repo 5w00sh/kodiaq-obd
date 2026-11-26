@@ -218,6 +218,14 @@
   #btnBig{position:absolute;top:8px;right:8px;z-index:3;width:38px;height:38px;min-width:0;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--card2);opacity:.9}
   #btnBig svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #p_drive.big #btnBig{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
+  /* speed-limit roundel (OSM, may be wrong): informational only, sits inside the speed tile's right edge */
+  #t_speed{position:relative}
+  .limit{--d:min(24cqw,40cqh);position:absolute;right:14px;top:50%;transform:translateY(-50%);display:none;flex-direction:column;align-items:center;gap:4px;width:var(--d);pointer-events:none}
+  .limit.show{display:flex}
+  .limit .rnd{width:var(--d);height:var(--d);box-sizing:border-box;border-radius:50%;background:#fff;border:calc(var(--d)*.12) solid #cc1117;color:#000;font-weight:800;display:grid;place-items:center;font-size:calc(var(--d)*.42);line-height:1;letter-spacing:-.04em}
+  .limit .rnd.nsl{border-color:#222;color:transparent;background:linear-gradient(135deg,#fff 44%,#111 44%,#111 56%,#fff 56%)}
+  .limit small{font-size:clamp(8px,2.4cqh,10px);line-height:1.15;color:var(--mut);text-align:center;font-weight:600;width:max(var(--d),84px)}
+  :root[data-theme=night] .limit .rnd{filter:brightness(.82)}
   /* other screens: fixed-height tile grids that reflow by width */
   .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(150px,1fr));grid-auto-rows:96px;margin-bottom:12px}
   .grid .wide{grid-column:1/-1}
@@ -333,7 +341,8 @@
     <div id="emptyHint">Ignition on → Connect · or tap Demo</div>
     <div class="drive">
     <button id="btnBig" aria-label="Big mode" aria-pressed="false" title="Big mode: hide labels, maximise numbers"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-      <div class="tile hero na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div></div>
+      <div class="tile hero na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div>
+        <div class="limit" id="limit" role="img"><div class="rnd"></div><small>OSM limit (may be wrong)</small></div></div>
       <div class="fuelhero" id="fuelhero">
         <div class="tile na" id="t_range"><div class="lab">Range</div><div class="val"><span class="num">–</span><span class="unit">mi</span><span class="basis">@40 mpg</span></div></div>
         <div class="tile na" id="t_remain"><div class="lab">Estimated remaining</div><div class="sec"><span id="remL">–</span><span id="remCost">–</span></div></div>
@@ -360,6 +369,7 @@
           <div class="tile na" id="t_idle"><div class="lab">Idling</div><div class="val">–<span class="unit">%</span></div></div>
           <div class="tile na" id="t_hirpm"><div class="lab">Over 2,500 rpm</div><div class="val">–<span class="unit">%</span></div></div>
           <div class="tile na wide" id="t_vsexp"><div class="lab">Vs expected for these conditions</div><div class="val">–<span class="unit">learning</span></div></div>
+          <div class="tile na wide" id="t_over"><div class="lab">Over OSM limit (may be wrong)</div><div class="val">–<span class="unit">needs GPS + limit data</span></div></div>
           <div class="tile na wide" id="t_coast"><div class="lab">Coasting on fuel cut</div><div class="val">–<span class="unit">% of moving time</span></div></div>
         </div>
         <p class="note">"Vs expected" compares this trip with what <i>your</i> history predicts for the same trip length, speeds, outside temperature and cold-engine share, so short cold trips aren't marked as bad driving. Needs 8 trips to train.</p>
@@ -398,6 +408,18 @@
           <div class="tile na" id="t_adblue"><div class="lab">AdBlue (experimental)</div><div class="val">–<span class="unit">%</span></div></div>
           <div class="tile na" id="t_amb"><div class="lab">Outside</div><div class="val">–<span class="unit">°C</span></div></div>
         </div>
+      </section>
+      <section>
+        <h2>Phone GPS</h2>
+        <div class="grid">
+          <div class="tile na" id="t_gspd"><div class="lab">GPS speed</div><div class="val">–<span class="unit">mph</span></div></div>
+          <div class="tile na" id="t_spderr"><div class="lab">OBD vs GPS</div><div class="val">–<span class="unit">%</span></div></div>
+          <div class="tile na" id="t_alt"><div class="lab">Altitude</div><div class="val">–<span class="unit">m</span></div></div>
+          <div class="tile na" id="t_grade"><div class="lab">Gradient</div><div class="val">–<span class="unit">%</span></div></div>
+        </div>
+        <div id="gpsInfo" class="note"></div>
+        <div class="row" style="margin-top:10px"><button id="btnGps">GPS: on</button></div>
+        <p class="note">GPS runs only while connected or in Demo, in the foreground, and rests when you're stationary. It is optional: nothing from the car depends on it. "OBD vs GPS" is how far the car's speed reading is from true GPS speed. Weather (Open-Meteo) and speed limits (OpenStreetMap) are best-effort look-ups, cached, and sent with a rounded position (weather ~1 km, limits by map tile). Your route is stored on this phone only.</p>
       </section>
       <section>
         <h2>Diesel particulate filter (DPF)</h2>
@@ -717,7 +739,10 @@ function saveTrip(){
   const h = store.get('trips', []);
   const m = styleMetrics();
   h.push({date:new Date(trip.t0).toISOString(), miles:tripKm()/KM_PER_MILE, litres:trip.L, mpg:mpg(tripKm(),trip.L), idleL:st.idleL,
-          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, stops:tripStops.map(x=>({...x})), hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
+          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, stops:tripStops.map(x=>({...x})),
+          ...(tg.km >= 0.3 ? {gpsKm:+tg.km.toFixed(2), ascent:Math.round(tg.ascent), descent:Math.round(tg.descent), route:simplifyRoute(tg.route, 15, 150).map(p=>[+p[0].toFixed(5), +p[1].toFixed(5), p[2]==null ? null : Math.round(p[2])]),
+            spdErr:tg.spdN >= 10 ? +((tg.spdObd/tg.spdGps - 1)*100).toFixed(1) : null, overPct:tg.limS >= 20 ? +(tg.overS/tg.limS*100).toFixed(0) : null} : {}),
+          wx:tg.wx || null, hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
   tripsCache = h.slice(-300); store.set('trips', tripsCache); store.set('sinceFill', sinceFill); store.set('bands', bands);
   renderLearned();
 }
@@ -727,8 +752,10 @@ function saveTrip(){
 let odoKm = null;
 const BANDS = [[0,20],[20,30],[30,40],[40,50],[50,60],[60,65],[65,70],[70,75],[75,200]]; // mph
 let bands = store.get('bands', BANDS.map(()=>({km:0,L:0})));
-let st;
-function newStyle(){ st = {hacc:0, hbrk:0, idleS:0, moveS:0, moveKm:0, mwKm:0, hiS:0, coastS:0, runS:0, coldL:0, idleL:0, ambSum:0, ambN:0, hist:[], lastEvt:0}; }
+let st, tg = null;
+function newTg(){ return {km:0, ascent:0, descent:0, altF:null, altRef:null, cum:0, win:[], grade:null, spdObd:0, spdGps:0, spdN:0, route:[], lastR:null,
+  limS:0, overS:0, wx:null, wxBusy:false, wxN:0, wxAt:0}; }
+function newStyle(){ tg = newTg(); st = {hacc:0, hbrk:0, idleS:0, moveS:0, moveKm:0, mwKm:0, hiS:0, coastS:0, runS:0, coldL:0, idleL:0, ambSum:0, ambN:0, hist:[], lastEvt:0}; }
 newStyle();
 function styleUpdate(dtH){
   if (!dtH) return;
@@ -787,7 +814,7 @@ function renderLearned(){
   const trips = store.get('trips', []);
   $('trips').innerHTML = trips.length ? trips.slice(-6).reverse().map(t=>{
     const d = new Date(t.date);
-    return `<div>${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}: ${t.miles.toFixed(1)} mi · <b style="color:var(--txt)">${t.mpg?t.mpg.toFixed(1):'–'} mpg</b>${t.score!=null?' · score '+Math.round(t.score):''}${t.stops&&t.stops.length?' · '+t.stops.length+' stop'+(t.stops.length>1?'s':''):''}</div>`; }).join('') : 'None yet.';
+    return `<div>${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}: ${t.miles.toFixed(1)} mi · <b style="color:var(--txt)">${t.mpg?t.mpg.toFixed(1):'–'} mpg</b>${t.score!=null?' · score '+Math.round(t.score):''}${t.stops&&t.stops.length?' · '+t.stops.length+' stop'+(t.stops.length>1?'s':''):''}${t.ascent!=null?' · ↑'+t.ascent+' m':''}</div>`; }).join('') : 'None yet.';
   // insights
   const ins = [], real = trips.filter(t=>t.miles >= 1 && t.mpg);
   const totMi = real.reduce((a,t)=>a+t.miles,0);
@@ -913,10 +940,13 @@ function renderDpf(){
 function tripFeatures(){
   const miles = tripKm()/KM_PER_MILE, movH = st.moveS/3600;
   return { miles, avgMph: movH > 0 ? (st.moveKm/KM_PER_MILE)/movH : 0, mwShare: st.moveKm > 0 ? st.mwKm/st.moveKm : 0,
-           amb: st.ambN ? st.ambSum/st.ambN : null, coldFrac: trip.L > 0 ? Math.min(1, st.coldL/trip.L) : 0,
-           idleFrac: st.runS > 0 ? st.idleS/st.runS : 0 };
+           amb: st.ambN ? st.ambSum/st.ambN : (tg.wx ? tg.wx.temp : null), coldFrac: trip.L > 0 ? Math.min(1, st.coldL/trip.L) : 0,
+           idleFrac: st.runS > 0 ? st.idleS/st.runS : 0,
+           climb: tg.km >= 0.3 ? tg.ascent/(tg.km*1000)*100 : null,           // average climb %, from phone GPS (null = unknown)
+           wind: tg.wx ? tg.wx.wind : null, rain: tg.wx ? tg.wx.rain : null };
 }
-function fx(f){ const a = f.amb==null ? 10 : f.amb; return [Math.log(Math.max(0.5,f.miles)), f.avgMph, f.avgMph*f.avgMph/100, f.mwShare, a, f.coldFrac, f.idleFrac]; }
+function fx(f){ const a = f.amb==null ? 10 : f.amb; return [Math.log(Math.max(0.5,f.miles)), f.avgMph, f.avgMph*f.avgMph/100, f.mwShare, a, f.coldFrac, f.idleFrac,
+  f.climb==null ? null : f.climb, f.wind==null ? null : f.wind, f.rain==null ? null : f.rain]; }   // null = not measured: filled with the average, so old trips still train
 function solve(A, b){ // Gaussian elimination with partial pivoting
   const n = b.length; A = A.map((r,i)=>[...r, b[i]]);
   for (let c=0;c<n;c++){ let p=c; for (let r=c+1;r<n;r++) if (Math.abs(A[r][c])>Math.abs(A[p][c])) p=r;
@@ -928,7 +958,10 @@ let model = null;
 function trainModel(){
   const data = store.get('trips', []).filter(t=>t.feat && t.mpg && t.miles >= 1 && t.mpg > 5 && t.mpg < 150);
   if (data.length < 8){ model = {n:data.length, ready:false}; return model; }
-  const X = data.map(t=>fx(t.feat)), y = data.map(t=>LKM_TO_MPG/t.mpg);           // target: L/100km
+  let X = data.map(t=>fx(t.feat)); const y = data.map(t=>LKM_TO_MPG/t.mpg);           // target: L/100km
+  { const s0 = Array(X[0].length).fill(0), n0 = Array(X[0].length).fill(0);
+    X.forEach(r=>r.forEach((v,j)=>{ if (v!=null){ s0[j]+=v; n0[j]++; } }));
+    const fill = s0.map((v,j)=>n0[j] ? v/n0[j] : 0); X = X.map(r=>r.map((v,j)=>v==null ? fill[j] : v)); }
   const d = X[0].length, mu = Array(d).fill(0), sd = Array(d).fill(0);
   X.forEach(r=>r.forEach((v,j)=>mu[j]+=v/X.length)); X.forEach(r=>r.forEach((v,j)=>sd[j]+=(v-mu[j])**2/X.length));
   for (let j=0;j<d;j++) sd[j] = Math.sqrt(sd[j]) || 1;
@@ -945,7 +978,7 @@ function trainModel(){
 }
 function expectedMpg(f){
   if (!model || !model.ready) return null;
-  const z = [1, ...fx(f).map((v,j)=>(v-model.mu[j])/model.sd[j])];
+  const z = [1, ...fx(f).map((v,j)=>((v==null ? model.mu[j] : v)-model.mu[j])/model.sd[j])];
   const l100 = z.reduce((s,v,j)=>s+v*model.w[j],0);
   return l100 > 1 ? LKM_TO_MPG/l100 : null;
 }
@@ -977,7 +1010,7 @@ function show(name, v, dp){
 function record(){
   if (demo){ $('logInfo').textContent = 'Demo: samples are not logged.'; return; }          // demo data never goes into the real trip log / CSV
   const now = Date.now(); if (now-lastLog < 1000) return; lastLog = now;
-  samples.push({t:new Date(now).toISOString(), ...latest, egt:dpf.egt, dpfTrig:dpf.trigger, regen:dpf.active?1:0});
+  samples.push({t:new Date(now).toISOString(), ...latest, egt:dpf.egt, dpfTrig:dpf.trigger, regen:dpf.active?1:0});   // latest also carries gpsKmh/alt/limit when GPS is on
   $('logInfo').textContent = samples.length+' samples. Logs ~1 sample/second while connected.';
   $('btnCsv').disabled = false;
 }
@@ -1023,7 +1056,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.0.5';
+const APP_VERSION = '6.1.0';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1364,7 +1397,7 @@ async function connect(){
          if (rpm0 < 300){ recordBattery(v0); log('Battery before start: '+(v0!=null?v0.toFixed(1)+' V':'n/a')); }
          else log('Engine already running, battery pre-start check skipped'); }catch(e){ log('Battery check failed: '+e.message); }
     if (!(batt.length && batt[batt.length-1].v < 12.2 && Date.now()-new Date(batt[batt.length-1].date) < 60000)) setStatus('Connected','on');
-    showAsleep(false); ui(true); running = true; demo = false; keepAwake(); loop();
+    showAsleep(false); ui(true); running = true; demo = false; keepAwake(); gpsStart(); loop();
     if (Date.now() - store.get('lastFullScan', 0) > 20*3600*1000) setTimeout(()=>fullScan(true), 1500);
   }catch(e){ log('Connect failed: '+e.message);
     const asleep = openFailed || atzSilent;           // port would not open / adapter never answered ATZ
@@ -1380,7 +1413,7 @@ async function stop(msg){
   if (demo && _ibBackup){ idleBase = _ibBackup; _ibBackup = null; }
   if (!demo) endTrip('stopped');
   dpf.active = false; dpf.tripRegen = false; renderDpf();
-  const wasDemo = demo; running = false; demo = false;
+  const wasDemo = demo; running = false; demo = false; gpsStop();
   try{ reader?.releaseLock(); }catch{} try{ writer?.releaseLock(); }catch{}
   try{ await port?.close(); }catch{}
   port = reader = writer = null; ui(false); setStatus(msg||'Stopped'); wakeLock?.release?.();
@@ -1406,7 +1439,7 @@ function demoStep(){
   curLph = 0.6 + sp*0.055 + Math.max(0,latest.throttle-15)*0.15; const dtH = integrate(sp, curLph); styleUpdate(dtH); dpfUpdate(dtH); renderFuel(sp); renderStyle(); renderDpf(); renderVsExpected();
 }
 let _sfBackup=null, _bandsBackup=null, _regBackup=null, _ibBackup=null;
-function startDemo(){ showAsleep(false); ds = 0; fuelReset(); fuelWin = [0,1,2].map(()=>[performance.now(), 62]); fuelMed = 62; tripOpen = false; _regBackup = [...regens]; _ibBackup = {...idleBase}; _sfBackup = {...sinceFill}; _bandsBackup = JSON.parse(JSON.stringify(bands)); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
+function startDemo(){ showAsleep(false); ds = 0; fuelReset(); fuelWin = [0,1,2].map(()=>[performance.now(), 62]); fuelMed = 62; tripOpen = false; _regBackup = [...regens]; _ibBackup = {...idleBase}; _sfBackup = {...sinceFill}; _bandsBackup = JSON.parse(JSON.stringify(bands)); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); gpsStart(); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
 
 // ---------- CSV ----------
 function csv(){
@@ -1574,6 +1607,254 @@ $('fillSave').onclick = fillSave;
 $('fillLit').onkeydown = e=>{ if (e.key==='Enter') fillSave(); };
 $('fillSkip').onclick = ()=>{ store.set('fillPending', null); $('fillCard').classList.remove('show'); };
 $('btnTank').onclick = setTank;
+
+// =====================================================================
+// PHONE GPS (v6.1). Best effort: OBD features never wait for it or depend on it.
+// Runs only while connected / in Demo and only in the foreground. Everything stays on the device except two
+// optional, rounded look-ups: Open-Meteo (weather, ~1 km) and Overpass (speed limits, by map tile).
+// =====================================================================
+const G = {state:'off', active:false, mode:null, watch:null, timer:null, poll:null, fix:null, fine:false, fixes:0, lastGood:0, lastPoll:0,
+           stillSince:null, paused:false, asked:store.get('gpsAsked', 0), limit:null, limCand:undefined, limN:0, perm:null};
+let GPS_IDLE_MS = 45000;                 // stationary this long -> drop high-accuracy GPS
+const GPS_POLL_MS = 60000;               // idle: one coarse look every minute
+const MS_TO_MPH = 2.23694;
+const hav = (a,b)=>{ const R=6371000, r=Math.PI/180, dLat=(b.lat-a.lat)*r, dLon=(b.lon-a.lon)*r;
+  const x=Math.sin(dLat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.sqrt(x)); };
+
+function setGpsState(s){ if (G.state===s) return; G.state=s; if (s!=='ok' || G.fixes<=1) log('GPS: '+s); updateGpsUi(); }
+
+async function gpsStart(force){
+  if (G.active) return;
+  if (!store.get('gpsOn', true) && !force){ G.state='off'; updateGpsUi(); return; }
+  if (!('geolocation' in navigator) || !navigator.geolocation){ G.state='unsupported'; updateGpsUi(); return; }
+  G.active = true; G.paused = false; G.fixes = 0; G.stillSince = null;
+  try{
+    const p = await navigator.permissions?.query({name:'geolocation'}); G.perm = p;
+    if (p){ p.onchange = ()=>{ if (!G.active) return;
+        if (p.state==='denied'){ gpsClear(); setGpsState('denied'); }
+        else if (p.state==='granted' && G.state==='denied'){ G.state='searching'; startWatch(); } }; }
+    if (p && p.state==='denied'){ setGpsState('denied'); G.timer = setInterval(gpsTick, 3000); return; }
+    if (p && p.state==='prompt' && G.asked && !force){ setGpsState('denied'); G.timer = setInterval(gpsTick, 3000); return; }   // asked once already: don't nag
+    if (p && p.state==='prompt'){ G.asked = Date.now(); store.set('gpsAsked', G.asked); }
+  }catch{}
+  if (!G.active) return;
+  setGpsState('searching'); startWatch(); G.timer = setInterval(gpsTick, 3000);
+}
+function gpsClear(){ try{ if (G.watch!=null) navigator.geolocation.clearWatch(G.watch); }catch{} G.watch = null; G.mode = null; }
+function gpsStop(){
+  G.active = false; gpsClear(); clearInterval(G.timer); G.timer = null; clearTimeout(G.poll);
+  if (G.state!=='unsupported' && G.state!=='denied') G.state = 'off';
+  G.fix = null; G.fine = false; G.limit = null; G.limCand = undefined; limitUi(null); updateGpsUi();
+}
+function startWatch(){
+  if (!G.active || G.paused) return; gpsClear(); clearTimeout(G.poll);
+  try{ G.watch = navigator.geolocation.watchPosition(onFix, onGpsErr, {enableHighAccuracy:true, maximumAge:1000, timeout:20000}); G.mode = 'high'; }catch{ setGpsState('unsupported'); }
+}
+function startIdle(){
+  gpsClear(); G.mode = 'idle'; updateGpsUi(); gpsPoll();
+}
+function gpsPoll(){
+  clearTimeout(G.poll); if (!G.active || G.paused || G.mode!=='idle') return; G.lastPoll = Date.now();
+  try{ navigator.geolocation.getCurrentPosition(onFix, onGpsErr, {enableHighAccuracy:false, maximumAge:GPS_POLL_MS, timeout:20000}); }catch{}
+  G.poll = setTimeout(gpsPoll, GPS_POLL_MS);
+}
+function onGpsErr(e){
+  if (!G.active) return;
+  if (e && e.code===1){ gpsClear(); setGpsState('denied'); return; }                 // blocked: stop quietly, OBD carries on
+  if (G.state!=='ok' && G.state!=='lost' && G.state!=='coarse') setGpsState('searching');   // unavailable/timeout: keep trying, no noise
+}
+function gpsTick(){                                                                // every 3 s while connected/demo
+  if (!G.active || G.paused) return;
+  const now = Date.now(), moving = (latest.speed||0) >= 5 || (G.fine && G.fix && G.fix.v>=1.5 && now-G.fix.t < 5000);
+  if (G.state==='denied' || G.state==='unsupported') return;
+  if (moving){ G.stillSince = null; if (G.mode!=='high') startWatch(); }
+  else { G.stillSince = G.stillSince || now; if (now-G.stillSince > GPS_IDLE_MS && G.mode==='high') startIdle(); }
+  if (G.mode==='high' && G.state==='ok' && now-G.lastGood > 8000) setGpsState('lost');
+  if (G.state==='lost' && now-G.lastGood > 30000 && G.limit!=null){ G.limit = null; G.limCand = undefined; limitUi(null); }
+}
+document.addEventListener('visibilitychange', ()=>{                                // foreground only
+  if (!G.active) return;
+  if (document.visibilityState==='hidden'){ G.paused = true; gpsClear(); clearTimeout(G.poll); }
+  else { G.paused = false; G.stillSince = null; startWatch(); }
+});
+
+function saveLoc(f){                                                               // keeps the auto day/night theme fresh
+  if (f.acc > 5000) return;
+  const o = store.get('loc', null);
+  if (o && Date.now()-o.t < 10*60e3 && hav(o,f) < 5000) return;
+  store.set('loc', {lat:+f.lat.toFixed(4), lon:+f.lon.toFixed(4), t:Date.now()}); try{ kobdTheme.apply(); }catch{}
+}
+
+function onFix(p){
+  const c = p && p.coords; if (!c || c.latitude==null || !G.active) return;
+  const now = Date.now();
+  const f = {lat:c.latitude, lon:c.longitude, acc:c.accuracy==null ? 999 : c.accuracy, alt:c.altitude, altAcc:c.altitudeAccuracy, spd:c.speed, hdg:c.heading, t:now, v:null};
+  G.fixes++; G.lastGood = now; saveLoc(f);
+  const fine = f.acc <= 35, prev = G.fine ? G.fix : null;
+  G.fix = f; G.fine = fine;
+  wxMaybe(f);
+  if (!fine){ setGpsState('coarse'); updateGpsUi(); return; }                       // Wi-Fi/cell fix: fine for weather + theme, not for speed/hills/limits
+  setGpsState('ok');
+  const dt = prev ? (f.t-prev.t)/1000 : 0, gapOk = prev && dt > 0.3 && dt <= 10;
+  f.v = (f.spd!=null && f.spd>=0 && isFinite(f.spd)) ? f.spd : (gapOk ? hav(prev,f)/dt : null);
+  const d = gapOk ? hav(prev,f) : 0;
+  if (gapOk && f.v!=null && f.v >= 1) tg.km += d/1000;
+  if (f.alt!=null && isFinite(f.alt) && (f.altAcc==null || f.altAcc <= 40)){        // smoothed altitude, gradient over ~150 m
+    if (tg.altF==null){ tg.altF = tg.altRef = f.alt; tg.cum = 0; tg.win = [[0, f.alt]]; }
+    else if (gapOk && f.v >= 1 && d > 0){
+      tg.cum += d; tg.altF += (1-Math.exp(-d/60)) * (f.alt - tg.altF);
+      const diff = tg.altF - tg.altRef;
+      if (diff > 3){ tg.ascent += diff; tg.altRef = tg.altF; } else if (diff < -3){ tg.descent -= diff; tg.altRef = tg.altF; }
+      tg.win.push([tg.cum, tg.altF]); while (tg.win.length > 1 && tg.cum - tg.win[1][0] >= 150) tg.win.shift();
+      const span = tg.cum - tg.win[0][0]; if (span >= 100) tg.grade = (tg.altF - tg.win[0][1]) / span * 100;
+    }
+  }
+  if (!demo && f.v!=null && f.v >= 5 && latest.speed!=null){ tg.spdObd += latest.speed/3.6; tg.spdGps += f.v; tg.spdN++; }
+  if (!tg.lastR || hav(tg.lastR,f) >= 20){ tg.route.push([f.lat, f.lon, tg.altF]); tg.lastR = f; if (tg.route.length > 3000) tg.route = simplifyRoute(tg.route, 25, 1500); }
+  latest.gpsKmh = f.v!=null ? f.v*3.6 : null; latest.alt = tg.altF;
+  // speed limit (OpenStreetMap, may be wrong): purely informational, never an alert
+  const [ta,tb] = tileOf(f.lat,f.lon); loadTile(ta,tb); prefetchNear(f,ta,tb);
+  const r = limitAt(f); applyLimit(r);
+  latest.limit = G.limit > 0 ? G.limit : null;
+  if (G.limit > 0 && f.v!=null){ const dtc = Math.min(gapOk ? dt : 1, 3); tg.limS += dtc; if (f.v*MS_TO_MPH > G.limit + 1) tg.overS += dtc; }
+  updateGpsUi();
+}
+
+// ---- simplified route (Douglas-Peucker), kept per trip on this device only ----
+function simplifyRoute(pts, tolM, max){
+  if (pts.length < 3) return pts.slice();
+  const kx = 111320*Math.cos(pts[0][0]*Math.PI/180), ky = 110540;
+  const X = pts.map(p=>[p[1]*kx, p[0]*ky]);
+  const dseg = (p,a,b)=>{ const dx=b[0]-a[0], dy=b[1]-a[1], l=dx*dx+dy*dy; let t = l ? ((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l : 0; t=Math.max(0,Math.min(1,t));
+    return Math.hypot(p[0]-a[0]-t*dx, p[1]-a[1]-t*dy); };
+  for (let tol=tolM; ; tol*=1.5){
+    const keep = new Uint8Array(pts.length); keep[0]=keep[pts.length-1]=1; const stack=[[0,pts.length-1]];
+    while (stack.length){ const [a,b]=stack.pop(); let mx=0, mi=-1; for (let i=a+1;i<b;i++){ const d=dseg(X[i],X[a],X[b]); if (d>mx){ mx=d; mi=i; } }
+      if (mx > tol && mi>0){ keep[mi]=1; stack.push([a,mi],[mi,b]); } }
+    const out = pts.filter((_,i)=>keep[i]); if (out.length <= max) return out;
+  }
+}
+
+// ---- OpenStreetMap speed limits via Overpass: one request per ~1.4 x 2.2 km map tile, cached on the device ----
+const OSM = {tiles:new Map(), pending:new Set(), retry:new Map(), nets:0};
+const tileOf = (lat,lon)=>[Math.floor(lat/0.02), Math.floor(lon/0.03)];
+const tkey = (a,b)=>a+'_'+b;
+function parseMax(v){
+  v = String(v||'').trim().toLowerCase(); let m;
+  if ((m = v.match(/^(\d{1,3})\s*mph$/))) return +m[1];
+  if ((m = v.match(/^(\d{2,3})$/))) return Math.round(+m[1]/1.609344/5)*5;          // bare numbers are km/h
+  if (/national_speed_limit|nsl/.test(v)) return -1;                               // UK national limit: shown as the stripe sign, not compared
+  return null;
+}
+function loadTile(a,b){
+  const k = tkey(a,b); if (OSM.tiles.has(k) || OSM.pending.has(k)) return;
+  const c = store.get('osm_'+k, null);
+  if (c && c.ways && Date.now()-c.t < 60*864e5){ OSM.tiles.set(k, c); return; }
+  if (navigator.onLine===false || Date.now() < (OSM.retry.get(k)||0)) return;
+  OSM.pending.add(k);
+  const s=a*0.02, w=b*0.03, n=(a+1)*0.02, e=(b+1)*0.03, ctl = new AbortController(), to = setTimeout(()=>ctl.abort(), 25000);
+  const q = `[out:json][timeout:20];way["highway"]["maxspeed"](${s.toFixed(2)},${w.toFixed(2)},${n.toFixed(2)},${e.toFixed(2)});out tags geom qt;`;
+  fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:'data='+encodeURIComponent(q), headers:{'Content-Type':'application/x-www-form-urlencoded'}, signal:ctl.signal})
+    .then(r=>{ if (!r.ok) throw 0; return r.json(); })
+    .then(j=>{
+      const ways = (j.elements||[]).filter(x=>x.type==='way' && x.geometry && x.geometry.length>1 && x.tags).map(x=>[parseMax(x.tags.maxspeed), x.geometry.flatMap(g=>[+g.lat.toFixed(5), +g.lon.toFixed(5)])]).filter(x=>x[0]!=null);
+      const t = {t:Date.now(), ways}; OSM.tiles.set(k, t); OSM.nets++;
+      storeTile(k, t);
+    })
+    .catch(()=>{ OSM.retry.set(k, Date.now() + 10*60e3); })                         // quiet: try again in 10 min
+    .finally(()=>{ clearTimeout(to); OSM.pending.delete(k); updateGpsUi(); });
+}
+function storeTile(k, t){
+  const idx = store.get('osm_idx', []).filter(x=>x!==k); idx.push(k);
+  while (idx.length > 8){ try{ localStorage.removeItem('kobd_osm_'+idx.shift()); }catch{} }
+  try{ localStorage.setItem('kobd_osm_'+k, JSON.stringify(t)); store.set('osm_idx', idx); }
+  catch{ while (idx.length > 1){ try{ localStorage.removeItem('kobd_osm_'+idx.shift()); localStorage.setItem('kobd_osm_'+k, JSON.stringify(t)); store.set('osm_idx', idx); break; }catch{} } }   // quota: drop oldest tiles
+}
+function prefetchNear(f,a,b){
+  const fy = (f.lat/0.02 - a), fx = (f.lon/0.03 - b), da = fy < 0.15 ? -1 : fy > 0.85 ? 1 : 0, db = fx < 0.15 ? -1 : fx > 0.85 ? 1 : 0;
+  if (da) loadTile(a+da, b); if (db) loadTile(a, b+db); if (da && db) loadTile(a+da, b+db);
+}
+function limitAt(f){                                                               // undefined = tile not loaded yet, null = no limit known here
+  const [a,b] = tileOf(f.lat,f.lon), tl = OSM.tiles.get(tkey(a,b)); if (!tl) return undefined;
+  const kx = 111320*Math.cos(f.lat*Math.PI/180), ky = 110540, hdg = (f.hdg!=null && f.v>=2) ? f.hdg : null;
+  let best = null, bd = 1e9;
+  for (const [lim, pts] of tl.ways){
+    for (let i=0;i+3<pts.length;i+=2){
+      const ax=(pts[i+1]-f.lon)*kx, ay=(pts[i]-f.lat)*ky, bx=(pts[i+3]-f.lon)*kx, by=(pts[i+2]-f.lat)*ky, dx=bx-ax, dy=by-ay, l=dx*dx+dy*dy;
+      let t = l ? -(ax*dx+ay*dy)/l : 0; t = Math.max(0,Math.min(1,t));
+      let d = Math.hypot(ax+t*dx, ay+t*dy);
+      if (d > 40) continue;
+      if (hdg!=null && l > 25){ const br = (Math.atan2(dx,dy)*180/Math.PI+360)%180, hd = Math.abs(((hdg%180)-br+270)%180-90); if (hd > 50) d += 25; }   // prefer roads running our way
+      if (d < bd){ bd = d; best = lim; }
+    }
+  }
+  return bd <= 35 ? best : null;
+}
+function applyLimit(r){
+  if (r===undefined) return;
+  if (r===G.limCand) G.limN++; else { G.limCand = r; G.limN = 1; }
+  const need = r===null ? 8 : (G.limit==null ? 1 : 2);                             // a change needs matching fixes: no flicker at junctions
+  if (G.limN >= need && G.limit !== r){ G.limit = r; limitUi(r); }
+}
+function limitUi(v){
+  const el = $('limit'), r = el.querySelector('.rnd');
+  el.classList.toggle('show', v!=null);
+  r.classList.toggle('nsl', v===-1); r.textContent = v > 0 ? v : '';
+  el.setAttribute('aria-label', v==null ? '' : v===-1 ? 'OSM national speed limit (may be wrong)' : 'OSM limit '+v+' mph (may be wrong)');
+}
+
+// ---- weather at trip start (Open-Meteo, no key; position rounded to ~1 km; cached) ----
+const RAIN_CODES = [51,53,55,56,57,61,63,65,66,67,80,81,82,95,96,99];
+async function fetchWeather(lat, lon){
+  const la = lat.toFixed(2), lo = lon.toFixed(2), c = store.get('wx', null);
+  if (c && c.k===la+','+lo && Date.now()-c.t < 45*60e3) return c.w;
+  const stale = (c && c.k===la+','+lo) ? c.w : null;
+  if (navigator.onLine===false) return stale;
+  const ctl = new AbortController(), to = setTimeout(()=>ctl.abort(), 15000);
+  try{
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${la}&longitude=${lo}&current=temperature_2m,wind_speed_10m,precipitation,weather_code&wind_speed_unit=mph`, {signal:ctl.signal});
+    if (!r.ok) throw 0; const j = (await r.json()).current; if (!j || j.temperature_2m==null) throw 0;
+    const w = {temp:j.temperature_2m, wind:j.wind_speed_10m, precip:j.precipitation, code:j.weather_code, rain:(j.precipitation>=0.1 || RAIN_CODES.includes(j.weather_code)) ? 1 : 0};
+    store.set('wx', {k:la+','+lo, t:Date.now(), w}); return w;
+  }catch{ return stale; }
+  finally{ clearTimeout(to); }
+}
+function wxMaybe(f){
+  if (!(tripOpen || demo) || f.acc > 3000 || tg.wx) return;
+  if (tg.wxBusy || tg.wxN >= 3 || Date.now()-tg.wxAt < 3*60e3) return;
+  tg.wxBusy = true; tg.wxN++; tg.wxAt = Date.now(); const mine = tg;
+  fetchWeather(f.lat, f.lon).then(w=>{ if (mine===tg && w) tg.wx = w; }).finally(()=>{ mine.wxBusy = false; updateGpsUi(); });
+}
+
+// ---- Car tab readout ----
+const GPS_MSG = {
+  off:'GPS is off. Everything from the car works as normal; this only adds GPS speed, hills, speed limits and weather.',
+  unsupported:'No GPS on this device. Everything from the car still works; weather and speed limits need a location.',
+  denied:'Location is blocked for this page. Allow it in Chrome (site settings) to get GPS speed, hills, speed limits and weather.',
+  searching:'Looking for GPS…', lost:'GPS signal lost (tunnel or cover?). It will come back by itself.'};
+function updateGpsUi(){
+  if (!$('gpsInfo')) return;
+  const f = G.fix, ok = G.state==='ok' && f && f.v!=null && Date.now()-f.t < 8000;
+  show('gspd', ok ? f.v*MS_TO_MPH : null, 0);
+  show('spderr', tg && tg.spdN >= 10 ? (tg.spdObd/tg.spdGps - 1)*100 : null, 1);
+  show('alt', G.state==='ok' && tg && tg.altF!=null ? tg.altF : null, 0);
+  show('grade', G.state==='ok' && tg && tg.grade!=null ? tg.grade : null, 1);
+  const overP = tg && tg.limS >= 20 ? tg.overS/tg.limS*100 : null;
+  { const t = $('t_over'), v = t.querySelector('.val'), u = v.querySelector('.unit'); t.classList.toggle('na', overP==null);
+    v.firstChild.nodeValue = overP==null ? '–' : Math.round(overP); u.textContent = overP==null ? 'needs GPS + limit data' : '% of time'; }
+  let s = GPS_MSG[G.state];
+  if (!G.active && G.state==='off' && store.get('gpsOn', true)) s = 'GPS starts when you connect (or tap Demo) and stops when you stop, to save battery.';
+  if (G.state==='ok') s = 'GPS locked, ±'+Math.round(f.acc)+' m'+(G.mode==='idle' ? ' (resting while stationary)' : '');
+  if (G.state==='coarse') s = 'Approximate location only (±'+(f.acc>=1000 ? (f.acc/1000).toFixed(1)+' km' : Math.round(f.acc)+' m')+'): no GPS speed, hills or speed limits, but weather and day/night still work.';
+  if (G.state==='ok' && G.mode==='idle') s = 'GPS resting while stationary (saves battery); wakes when you move.';
+  const w = tg && tg.wx;
+  const wx = w ? `Weather at trip start: ${Math.round(w.temp)} °C, wind ${Math.round(w.wind)} mph${w.rain ? ', rain' : ', dry'}.` : 'Weather at trip start: no data (needs a location and a connection; fine to leave).';
+  const lim = G.state==='ok' ? (G.limit==null ? 'Speed limit: no OSM data here.' : 'Speed limit shown is from OpenStreetMap and may be wrong.') : '';
+  $('gpsInfo').innerHTML = `<div>${s}</div><div>${wx}</div>${lim ? '<div>'+lim+'</div>' : ''}`;
+  $('btnGps').textContent = 'GPS: ' + (store.get('gpsOn', true) ? 'on' : 'off');
+}
+$('btnGps').onclick = ()=>{ const on = !store.get('gpsOn', true); store.set('gpsOn', on);
+  if (on){ if (running){ G.state='searching'; gpsStart(true); } else updateGpsUi(); } else { gpsStop(); } updateGpsUi(); };
 
 // ---------- theme toggle + big mode ----------
 $('btnTheme').onclick = ()=>{ const m = kobdTheme.cycle(); setStatusHint('Theme: '+m); };

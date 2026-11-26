@@ -26,6 +26,55 @@
     rpm() { return this.engine ? Math.round(800 + this.speedKmh() * 26) : 0; },
     volt() { if (Date.now() < this.crankUntil) return 10.0; if (this.engine) { this.hasRun = true; return 13.2 + (Date.now() % 3) / 10; } return this.hasRun ? 11.0 : this.restVolt; },
   };
+
+  // ---------------------------------------------------------------------------------------------
+  // Mock phone GPS (opt-in: tests set window.__MOCK_GPS = {...} before the page loads).
+  // A simulated vehicle drives due north from (lat0, lon0), then turns east at bendAt metres, at __mock.gps.speed m/s; altitude follows a hill:
+  // flat 50 m to 100 m, +6 % from 100 m to 400 m (=> +18 m), flat after. Controls (all on __mock.gps):
+  //   permission 'granted'|'prompt'|'denied', promptAnswer 'allow'|'deny'|'dismiss', prompts (count), available (false = no fix),
+  //   dropout (true = silent GPS dropout), acc (metres), speed (m/s), dist (m travelled), watches/polls (call logs).
+  // Options: {unsupported:true} removes navigator.geolocation (a Wi-Fi-only tablet with no location hardware at all).
+  // ---------------------------------------------------------------------------------------------
+  if (window.__MOCK_GPS) {
+    const o = window.__MOCK_GPS === true ? {} : window.__MOCK_GPS;
+    const g = mock.gps = Object.assign({
+      permission: 'granted', promptAnswer: 'allow', prompts: 0, available: true, dropout: false, acc: 8, speed: 0, dist: 0,
+      lat0: 51.4545, lon0: -2.5879, watches: [], polls: [], cleared: 0, _w: new Map(), _id: 1,
+      altAt(d) { return 50 + (d < 100 ? 0 : d < 400 ? (d - 100) * 0.06 : 18); },
+      bendAt: 600,                  // metres: the road turns from north to east here
+      fix(acc) { const d = this.dist, n = Math.min(d, this.bendAt), lat = this.lat0 + n / 111320, lon = this.lon0 + Math.max(0, d - this.bendAt) / (111320 * Math.cos(lat * Math.PI / 180));
+        return { coords: { latitude: lat, longitude: lon, accuracy: acc != null ? acc : this.acc,
+        altitude: this.altAt(d), altitudeAccuracy: 6, speed: this.speed, heading: d > this.bendAt ? 90 : 0 }, timestamp: Date.now() }; },
+      active() { return this._w.size; }, activeHigh() { return [...this._w.values()].filter(w => w.high).length; },
+    }, o);
+    const err = (cb, code) => cb && cb({ code, message: 'mock ' + code });
+    const gate = (okCb, errCb) => {           // permission rules shared by watch + one-shot
+      if (g.permission === 'prompt') { g.prompts++;
+        if (g.promptAnswer === 'dismiss') { setTimeout(() => err(errCb, 1), 10); return false; }          // closed the dialog: stays 'prompt'
+        g.permission = g.promptAnswer === 'allow' ? 'granted' : 'denied'; }
+      if (g.permission === 'denied') { setTimeout(() => err(errCb, 1), 10); return false; }
+      return true;
+    };
+    setInterval(() => {
+      g.dist += g.speed * 1;                                   // the vehicle keeps moving even while the GPS is out
+      if (!g.available || g.dropout || g.permission !== 'granted') return;
+      for (const w of g._w.values()) w.ok(g.fix());
+    }, 1000);
+    const geo = {
+      watchPosition(ok, e, opts) { const id = g._id++; g.watches.push({ id, high: !!(opts && opts.enableHighAccuracy), at: Date.now() });
+        if (!gate(ok, e)) return id; g._w.set(id, { ok, high: !!(opts && opts.enableHighAccuracy) }); return id; },
+      clearWatch(id) { if (g._w.delete(id)) g.cleared++; },
+      getCurrentPosition(ok, e, opts) { g.polls.push({ high: !!(opts && opts.enableHighAccuracy), at: Date.now() });
+        if (!gate(ok, e)) return; if (!g.available || g.dropout) { setTimeout(() => err(e, 2), 30); return; }
+        setTimeout(() => ok(g.fix(opts && opts.enableHighAccuracy ? g.acc : Math.max(g.acc, 500))), 30); },
+    };
+    const perms = navigator.permissions;
+    const origQuery = perms && perms.query ? perms.query.bind(perms) : null;
+    const queryMock = async (d) => (d && d.name === 'geolocation') ? { get state() { return g.permission; }, onchange: null, addEventListener() {} } : (origQuery ? origQuery(d) : { state: 'prompt' });
+    try { Object.defineProperty(navigator, 'permissions', { value: { query: queryMock }, configurable: true }); } catch (e) {}
+    if (o.unsupported) { try { delete Navigator.prototype.geolocation; } catch (e) {} try { Object.defineProperty(navigator, 'geolocation', { value: undefined, configurable: true }); } catch (e) {} delete navigator.geolocation; }
+    else Object.defineProperty(navigator, 'geolocation', { value: geo, configurable: true });
+  }
   const hexb = (...b) => b.map(x => (x & 255).toString(16).padStart(2, '0').toUpperCase()).join('');  // ATS0: no spaces
   // supported-PID bitmask for one 32-PID block: PID base+i+1 -> bit i from MSB
   const mask = (base, pids) => {
