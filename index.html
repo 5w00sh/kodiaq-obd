@@ -62,6 +62,9 @@
   .warnbox{background:#2a1d05;border:1px solid var(--warn);color:#ffd27a;border-radius:10px;padding:10px;font-size:13px;margin-bottom:10px;display:none}
   @media (min-width:700px){ body{font-size:16px} h1{font-size:20px} .note{font-size:14px} :root{--gap:12px;--hdr:64px;--nav:64px} nav button{font-size:15px} }
   @media (orientation:landscape) and (max-height:500px){ :root{--hdr:44px;--nav:42px;--gap:6px} h1{font-size:16px} nav button{font-size:13px} header button{padding:6px 12px} .tile{padding:5px 10px} }
+  #regen{position:absolute;left:var(--gap);right:var(--gap);bottom:var(--gap);z-index:3;display:none;background:#3a2600;border:2px solid var(--warn);color:#ffd27a;border-radius:12px;padding:10px 14px;font-weight:600;box-shadow:0 6px 24px #0008}
+  #regen b{color:#fff}
+  #regen.show{display:block}
 </style>
 </head>
 <body>
@@ -77,6 +80,7 @@
 <main>
   <!-- DRIVE -->
   <div class="pane sel" id="p_drive">
+    <div id="regen"></div>
     <div class="drive">
       <div class="tile hero na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div></div>
       <div class="tile hero na" id="t_mpgTrip"><div class="lab">Trip average</div><div class="val">–<span class="unit">mpg</span></div></div>
@@ -101,8 +105,10 @@
           <div class="tile na" id="t_hbrk"><div class="lab">Harsh braking</div><div class="val">–</div></div>
           <div class="tile na" id="t_idle"><div class="lab">Idling</div><div class="val">–<span class="unit">%</span></div></div>
           <div class="tile na" id="t_hirpm"><div class="lab">Over 2,500 rpm</div><div class="val">–<span class="unit">%</span></div></div>
+          <div class="tile na wide" id="t_vsexp"><div class="lab">Vs expected for these conditions</div><div class="val">–<span class="unit">learning</span></div></div>
           <div class="tile na wide" id="t_coast"><div class="lab">Coasting on fuel cut</div><div class="val">–<span class="unit">% of moving time</span></div></div>
         </div>
+        <p class="note">"Vs expected" compares this trip with what <i>your</i> history predicts for the same trip length, speeds, outside temperature and cold-engine share, so short cold trips aren't marked as bad driving. Needs 8 trips to train.</p>
         <p class="note">Eco score starts at 100, loses points for harsh accelerating/braking, idling and high revs, gains a little for coasting off the throttle (the TDI uses ~zero fuel then).</p>
       </section>
       <section>
@@ -135,7 +141,23 @@
           <div class="tile na" id="t_volt"><div class="lab">Battery</div><div class="val">–<span class="unit">V</span></div></div>
           <div class="tile na" id="t_litres"><div class="lab">Trip fuel</div><div class="val">–<span class="unit">L</span></div></div>
           <div class="tile na" id="t_odo"><div class="lab">Odometer</div><div class="val">–<span class="unit">mi</span></div></div>
+          <div class="tile na" id="t_amb"><div class="lab">Outside</div><div class="val">–<span class="unit">°C</span></div></div>
         </div>
+      </section>
+      <section>
+        <h2>Diesel particulate filter (DPF)</h2>
+        <div class="grid">
+          <div class="tile na" id="t_dpf"><div class="lab">Regen trigger</div><div class="val">–<span class="unit">%</span></div></div>
+          <div class="tile na" id="t_egt"><div class="lab">Exhaust temp</div><div class="val">–<span class="unit">°C</span></div></div>
+          <div class="tile na" id="t_regstate"><div class="lab">Regen now</div><div class="val">–</div></div>
+          <div class="tile na" id="t_regens"><div class="lab">Regens logged</div><div class="val">–</div></div>
+        </div>
+        <div id="dpfInfo" class="note">Detected on connect.</div>
+        <p class="note">The filter burns off soot every few hundred miles ("regen", ~10–20 min of driving). Switching off mid-regen leaves it part-done; repeated interruptions are how DPFs block on short-trip diesels.</p>
+      </section>
+      <section>
+        <h2>Battery health</h2>
+        <div id="battInfo" class="note"></div>
       </section>
       <section>
         <h2>Fault codes</h2>
@@ -252,14 +274,22 @@ const PIDS = {
   coolant: {pid:'05', fast:false, f:b=>b[0]-40},
   iat:     {pid:'0F', fast:false, f:b=>b[0]-40},
   oil:     {pid:'5C', fast:false, f:b=>b[0]-40},
+  amb:     {pid:'46', fast:false, f:b=>b[0]-40},
 };
-const unsupported = new Set();
+const unsupported = new Set(), pidFails = {};
 
 async function readPid(name){
   const {pid,f} = PIDS[name];
   const lines = await cmd('01'+pid);
   const hit = lines.map(l=>l.replace(/\s/g,'')).find(l=>l.toUpperCase().startsWith('41'+pid));
-  if (!hit){ if (lines.some(l=>/NO DATA|\?/i.test(l))) unsupported.add(name); return null; }
+  if (!hit){
+    // only give up after 6 misses in a row WHILE the engine is running (one glitch used to kill throttle/intake air)
+    if ((latest.rpm||0) > 300) pidFails[name] = (pidFails[name]||0) + 1;   // misses only count with the engine running
+    if (pidFails[name] === 1) log(name+' (01'+pid+') no reply: '+(lines.join(' | ')||'(empty)'));
+    if (pidFails[name] >= 6 && (latest.rpm||0) > 300 && name !== 'rpm' && name !== 'speed'){ unsupported.add(name); log(name+' marked unsupported after 6 misses'); }
+    return null;
+  }
+  pidFails[name] = 0;
   const bytes = hit.slice(4).match(/../g).map(h=>parseInt(h,16));
   return f(bytes);
 }
@@ -387,7 +417,7 @@ function saveTrip(){
   const h = store.get('trips', []);
   const m = styleMetrics();
   h.push({date:new Date(trip.t0).toISOString(), miles:tripKm()/KM_PER_MILE, litres:trip.L, mpg:mpg(tripKm(),trip.L), idleL:st.idleL,
-          coldL:st.coldL, hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
+          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
   store.set('trips', h.slice(-300)); store.set('sinceFill', sinceFill); store.set('bands', bands);
   renderLearned();
 }
@@ -398,7 +428,7 @@ let odoKm = null;
 const BANDS = [[0,20],[20,30],[30,40],[40,50],[50,60],[60,65],[65,70],[70,75],[75,200]]; // mph
 let bands = store.get('bands', BANDS.map(()=>({km:0,L:0})));
 let st;
-function newStyle(){ st = {hacc:0, hbrk:0, idleS:0, moveS:0, hiS:0, coastS:0, runS:0, coldL:0, idleL:0, hist:[], lastEvt:0}; }
+function newStyle(){ st = {hacc:0, hbrk:0, idleS:0, moveS:0, moveKm:0, mwKm:0, hiS:0, coastS:0, runS:0, coldL:0, idleL:0, ambSum:0, ambN:0, hist:[], lastEvt:0}; }
 newStyle();
 function styleUpdate(dtH){
   if (!dtH) return;
@@ -422,6 +452,8 @@ function styleUpdate(dtH){
     const mph = v/KM_PER_MILE, i = BANDS.findIndex(([lo,hi])=>mph>=lo && mph<hi);
     if (i >= 0 && lph!=null){ bands[i].km += v*dtH; bands[i].L += lph*dtH; }
   }
+  if (v >= 2){ st.moveKm += v*dtH; if (v >= 88) st.mwKm += v*dtH; }
+  if (latest.amb!=null){ st.ambSum += latest.amb; st.ambN++; }
   if (rpm > 2500) st.hiS += dtS;
   if (latest.coolant!=null && latest.coolant < 60 && lph!=null) st.coldL += lph*dtH;
 }
@@ -478,12 +510,150 @@ function renderLearned(){
     const w = arr => arr.reduce((a,t)=>a+t.miles,0) / arr.reduce((a,t)=>a+t.miles/t.mpg,0);
     ins.push(`Short trips (<4 mi) average <b>${w(short).toFixed(1)} mpg</b> vs <b>${w(long).toFixed(1)}</b> on 10+ mile trips; a cold diesel is thirsty, so combining errands pays.`);
   }
+  if (!model || model.n !== real.length) trainModel();
+  if (model && model.ready){
+    const last = [...real].reverse().find(t=>t.feat);
+    const e = last ? expectedMpg(last.feat) : null;
+    ins.push(`Expected-mpg model trained on <b>${model.n} trips</b> (typical error ±${model.mape.toFixed(0)}%).` + (e ? ` Last trip: <b>${last.mpg.toFixed(1)}</b> vs <b>${e.toFixed(1)}</b> expected → ${last.mpg>=e?'better':'worse'} than your norm by ${Math.abs((last.mpg/e-1)*100).toFixed(0)}%.` : ''));
+  } else ins.push(`Expected-mpg model: learning (${model?model.n:0}/8 trips).`);
+  if (regens.length){
+    const cut = regens.filter(r=>!r.completed).length;
+    ins.push(`DPF: ${regens.length} regen${regens.length>1?'s':''} logged, ${cut ? `<b style="color:var(--warn)">${cut} interrupted</b>. Try to finish them with a longer drive.` : 'all completed 👍'}`);
+  }
   const scored = real.filter(t=>t.score!=null);
   if (scored.length >= 3){
     const last = scored[scored.length-1].score, base = scored.slice(0,-1).reduce((a,t)=>a+t.score,0)/(scored.length-1);
     ins.push(`Last trip scored <b>${Math.round(last)}</b> vs your usual <b>${Math.round(base)}</b>.`);
   }
   $('insights').innerHTML = ins.map(x=>`<div style="padding:4px 0">• ${x}</div>`).join('');
+}
+
+
+// =====================================================================
+// AI 1: DPF regeneration detector
+//  - Direct signal: PID 8B (diesel aftertreatment status) if the car reports it
+//  - Learned signal: your normal warm-idle fuel flow / rpm and exhaust temps;
+//    a sustained jump above *your* baseline = regen suspected
+// =====================================================================
+let dpf = {active:false, src:null, since:null, km0:null, trigger:null, egt:null, flag8B:null, susp:0, tripRegen:false};
+let idleBase = store.get('idleBase', {lph:null, rpm:null, n:0});
+let regens = store.get('regens', []);
+function parse8B(b){ // A: support bits, B: status bits, C: normalised trigger (soot), D-E avg mins, F-G avg km
+  if (!b || b.length < 3) return null;
+  return { regenSupported: !!(b[0]&1), active: !!(b[1]&1), trigger: b[2]*100/255,
+           avgMin: b.length>=5 ? b[3]*256+b[4] : null, avgKm: b.length>=7 ? b[5]*256+b[6] : null };
+}
+function parse78(b){ // A: sensor-present bits, then 4 sensors × 2 bytes: (256X+Y)/10 − 40 °C
+  if (!b || b.length < 3) return null; let mx = null;
+  for (let i=0;i<4;i++){ if (!(b[0] & (1<<i)) || b.length < 3+i*2) continue;
+    const t = (b[1+i*2]*256 + b[2+i*2])/10 - 40; if (t > -40 && t < 1200) mx = mx==null ? t : Math.max(mx,t); }
+  return mx;
+}
+async function readDpf(){
+  if (supportedPids.has('8B')){ const raw = await rawPid('8B'); if (!dpf.logged8B && raw){ log('8B raw: '+raw.map(x=>x.toString(16).padStart(2,'0')).join(' ')); dpf.logged8B = true; } const r = parse8B(raw); if (r){ dpf.flag8B = r.regenSupported ? r.active : null; dpf.trigger = r.trigger; dpf.avgKm = r.avgKm; } }
+  if (supportedPids.has('78')){ dpf.egt = parse78(await rawPid('78')); }
+}
+function dpfUpdate(dtH){
+  const v = latest.speed||0, rpm = latest.rpm||0, lph = curLph==null ? null : curLph*cal, warm = (latest.coolant||0) >= 75;
+  if (rpm < 300){ return; }
+  // learn your normal warm idle (only when nothing says regen)
+  const idleNow = v < 2 && warm && lph!=null;
+  let heur = false;
+  if (idleNow && idleBase.n >= 60){
+    const hi = lph > idleBase.lph*1.5 + 0.25 && rpm > idleBase.rpm + 60;
+    dpf.susp = hi ? dpf.susp + dtH*3600 : Math.max(0, dpf.susp - dtH*3600*2);
+  }
+  if (dpf.egt!=null && v < 60 && (latest.throttle||0) < 25 && dpf.egt > 500) dpf.susp += dtH*3600;
+  heur = dpf.susp >= 40;
+  if (idleNow && !heur && dpf.flag8B !== true){
+    const a = idleBase.n < 30 ? 0.1 : 0.02;
+    idleBase.lph = idleBase.lph==null ? lph : idleBase.lph + a*(lph-idleBase.lph);
+    idleBase.rpm = idleBase.rpm==null ? rpm : idleBase.rpm + a*(rpm-idleBase.rpm);
+    idleBase.n++; if (idleBase.n % 20 === 0) store.set('idleBase', idleBase);
+  }
+  const was = dpf.active;
+  dpf.active = dpf.flag8B === true || (dpf.flag8B == null && heur);
+  dpf.src = dpf.flag8B === true ? 'car' : heur ? 'learned' : null;
+  if (dpf.active && !was){ dpf.since = Date.now(); dpf.km0 = tripKm(); dpf.tripRegen = true; log('DPF regen started ('+dpf.src+')'); }
+  if (!dpf.active && was){ logRegen(true); }
+}
+function logRegen(completed){
+  if (!dpf.since) return;
+  regens.push({start:new Date(dpf.since).toISOString(), mins:(Date.now()-dpf.since)/60000, miles:(tripKm()-(dpf.km0||0))/KM_PER_MILE, completed, src:dpf.src, odo:odoKm});
+  store.set('regens', regens.slice(-100)); log('DPF regen '+(completed?'finished':'INTERRUPTED')+' after '+((Date.now()-dpf.since)/60000).toFixed(1)+' min');
+  dpf.since = null;
+}
+function renderDpf(){
+  const b = $('regen');
+  if (dpf.active){
+    const mins = dpf.since ? (Date.now()-dpf.since)/60000 : 0;
+    b.innerHTML = `🔥 <b>DPF cleaning (regen) in progress</b>, ${mins.toFixed(0)} min so far. Keep driving if you can (ideally 50+ mph for 10–15 min). Avoid switching off.`;
+    b.classList.add('show');
+  } else b.classList.remove('show');
+  show('dpf', dpf.trigger); show('egt', dpf.egt);
+  const rs = $('t_regstate'); rs.classList.toggle('na', false); rs.querySelector('.val').textContent = dpf.active ? 'YES' : 'No';
+  rs.classList.toggle('hot', dpf.active);
+  show('regens', regens.length);
+  const done = regens.filter(r=>r.completed).length, cut = regens.length - done;
+  const src = supportedPids.has('8B') ? 'car status (PID 8B)' : 'learned idle pattern';
+  $('dpfInfo').innerHTML = `Detection: <b>${src}</b>${supportedPids.has('78')?' + exhaust temps':''}. Idle baseline: ${idleBase.n>=60 ? (idleBase.lph.toFixed(2)+' L/h @ '+Math.round(idleBase.rpm)+' rpm') : 'learning ('+Math.min(100,Math.round(idleBase.n/60*100))+'%)'}.`
+    + (regens.length ? `<br>Regens: ${done} completed, <b style="color:${cut?'var(--warn)':'var(--txt)'}">${cut} interrupted</b>.` : '')
+    + (dpf.trigger!=null ? `<br>Regen trigger at ${dpf.trigger.toFixed(0)}%: the car starts a regen around 100%. If it's high and you're doing short trips, a 20-min A-road/motorway run helps.` : '');
+}
+
+// =====================================================================
+// AI 2: "Expected mpg" model: ridge regression trained on your own trips.
+//  Predicts L/100km from conditions you can't control (trip length, speed
+//  mix, outside temp, cold-engine share, idling), then compares actual.
+// =====================================================================
+function tripFeatures(){
+  const miles = tripKm()/KM_PER_MILE, movH = st.moveS/3600;
+  return { miles, avgMph: movH > 0 ? (st.moveKm/KM_PER_MILE)/movH : 0, mwShare: st.moveKm > 0 ? st.mwKm/st.moveKm : 0,
+           amb: st.ambN ? st.ambSum/st.ambN : null, coldFrac: trip.L > 0 ? Math.min(1, st.coldL/trip.L) : 0,
+           idleFrac: st.runS > 0 ? st.idleS/st.runS : 0 };
+}
+function fx(f){ const a = f.amb==null ? 10 : f.amb; return [Math.log(Math.max(0.5,f.miles)), f.avgMph, f.avgMph*f.avgMph/100, f.mwShare, a, f.coldFrac, f.idleFrac]; }
+function solve(A, b){ // Gaussian elimination with partial pivoting
+  const n = b.length; A = A.map((r,i)=>[...r, b[i]]);
+  for (let c=0;c<n;c++){ let p=c; for (let r=c+1;r<n;r++) if (Math.abs(A[r][c])>Math.abs(A[p][c])) p=r;
+    [A[c],A[p]]=[A[p],A[c]]; if (Math.abs(A[c][c])<1e-12) return null;
+    for (let r=0;r<n;r++){ if (r===c) continue; const k=A[r][c]/A[c][c]; for (let j=c;j<=n;j++) A[r][j]-=k*A[c][j]; } }
+  return A.map((r,i)=>r[n]/r[i]);
+}
+let model = null;
+function trainModel(){
+  const data = store.get('trips', []).filter(t=>t.feat && t.mpg && t.miles >= 1 && t.mpg > 5 && t.mpg < 150);
+  if (data.length < 8){ model = {n:data.length, ready:false}; return model; }
+  const X = data.map(t=>fx(t.feat)), y = data.map(t=>LKM_TO_MPG/t.mpg);           // target: L/100km
+  const d = X[0].length, mu = Array(d).fill(0), sd = Array(d).fill(0);
+  X.forEach(r=>r.forEach((v,j)=>mu[j]+=v/X.length)); X.forEach(r=>r.forEach((v,j)=>sd[j]+=(v-mu[j])**2/X.length));
+  for (let j=0;j<d;j++) sd[j] = Math.sqrt(sd[j]) || 1;
+  const Z = X.map(r=>[1, ...r.map((v,j)=>(v-mu[j])/sd[j])]), lam = 2.0, D = d+1;
+  const A = Array.from({length:D},()=>Array(D).fill(0)), b = Array(D).fill(0);
+  Z.forEach((z,i)=>{ for (let a=0;a<D;a++){ b[a]+=z[a]*y[i]; for (let c=0;c<D;c++) A[a][c]+=z[a]*z[c]; } });
+  for (let a=1;a<D;a++) A[a][a] += lam;                                            // ridge (not on intercept)
+  const w = solve(A, b); if (!w){ model = {n:data.length, ready:false}; return model; }
+  // leave-nothing-out fit quality, shown to the user
+  const pred = Z.map(z=>z.reduce((s,v,j)=>s+v*w[j],0));
+  const resid = pred.map((p,i)=>(y[i]-p)/p), mape = resid.reduce((s,r)=>s+Math.abs(r),0)/resid.length*100;
+  model = {n:data.length, ready:true, w, mu, sd, mape};
+  return model;
+}
+function expectedMpg(f){
+  if (!model || !model.ready) return null;
+  const z = [1, ...fx(f).map((v,j)=>(v-model.mu[j])/model.sd[j])];
+  const l100 = z.reduce((s,v,j)=>s+v*model.w[j],0);
+  return l100 > 1 ? LKM_TO_MPG/l100 : null;
+}
+function renderVsExpected(){
+  const t = $('t_vsexp'), v = t.querySelector('.val');
+  if (!model) trainModel();
+  if (!model.ready){ t.classList.add('na'); v.innerHTML = '–<span class="unit">learning ('+(model.n||0)+'/8 trips)</span>'; return; }
+  const f = tripFeatures(), act = mpg(tripKm(), trip.L), exp = f.miles >= 1 ? expectedMpg(f) : null;
+  if (act==null || exp==null){ t.classList.add('na'); v.innerHTML = '–<span class="unit">after 1 mile</span>'; return; }
+  const pct = (act/exp - 1)*100;
+  t.classList.remove('na','hot','crit'); if (pct < -10) t.classList.add('crit'); else if (pct < -3) t.classList.add('hot');
+  v.innerHTML = (pct>=0?'+':'')+pct.toFixed(0)+'%<span class="unit">'+act.toFixed(1)+' vs '+exp.toFixed(1)+' mpg expected</span>';
 }
 
 // ---------- rendering ----------
@@ -501,7 +671,7 @@ function show(name, v, dp){
 }
 function record(){
   const now = Date.now(); if (now-lastLog < 1000) return; lastLog = now;
-  samples.push({t:new Date(now).toISOString(), ...latest});
+  samples.push({t:new Date(now).toISOString(), ...latest, egt:dpf.egt, dpfTrig:dpf.trigger, regen:dpf.active?1:0});
   $('logInfo').textContent = samples.length+' samples. Logs ~1 sample/second while connected.';
   $('btnCsv').disabled = false;
 }
@@ -520,17 +690,66 @@ async function loop(){
           const v = await readPid(name); latest[name]=v; show(name,v);
         }
         if (fuelMethod){ curLph = await readFuelLph(); }
-        const dtH = integrate(latest.speed, curLph); styleUpdate(dtH); renderFuel(latest.speed||0); renderStyle();
+        const dtH = integrate(latest.speed, curLph); styleUpdate(dtH);
+        if (tick%8===0 && (supportedPids.has('8B') || supportedPids.has('78'))) await readDpf();
+        dpfUpdate(dtH); renderFuel(latest.speed||0); renderStyle(); renderDpf(); if (tick%10===0) renderVsExpected();
         if (tick%20===0 && supportedPids.has('A6')){ const b = await rawPid('A6'); if (b && b.length>=4){ odoKm = (((b[0]<<24)>>>0) + (b[1]<<16) + (b[2]<<8) + b[3])/10; if (trip.odo0==null) trip.odo0 = odoKm; show('odo', odoKm/KM_PER_MILE); } }
         if (tick%10===0){ const v = await readVolt(); latest.volt=v; show('volt',v); }
+        engineWatch();
       }
-      record(); tick++;
+      if (demo || tripOpen) record(); tick++;
     }catch(e){
       log('Error: '+e.message);
       if (/closed|lost|disconnect/i.test(e.message)){ await stop('Connection lost'); return; }
       await new Promise(r=>setTimeout(r,500));
     }
   }
+}
+
+
+// ---------- engine on/off → automatic trip start/end ----------
+let tripOpen = false, offSince = null;
+function newTrip(){
+  trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle();
+  dpf = {active:false, src:null, since:null, km0:null, trigger:dpf.trigger, egt:null, flag8B:null, susp:0, tripRegen:false, logged8B:dpf.logged8B};
+  tripOpen = true; offSince = null;
+}
+function endTrip(reason){
+  if (!tripOpen) return;
+  if (dpf.active) logRegen(false);                      // engine stopped mid-regen = interrupted
+  saveTrip(); trainModel(); store.set('idleBase', idleBase);
+  tripOpen = false; dpf.active = false; dpf.tripRegen = false; renderDpf(); renderLearned();
+  log('Trip ended ('+reason+')');
+}
+function engineWatch(){
+  const on = (latest.rpm||0) > 300;
+  if (on){
+    offSince = null;
+    if (!tripOpen){ newTrip(); setStatus('Connected · trip running','on'); log('Engine on → new trip'); }
+  } else if (tripOpen){
+    offSince = offSince || Date.now();
+    if (Date.now() - offSince > 30000){ endTrip('engine off 30s'); setStatus('Engine off · trip saved','on'); }
+  }
+}
+
+// ---------- battery health ----------
+let batt = store.get('batt', []);
+function recordBattery(v){
+  if (v==null || v < 8 || v > 16) return;
+  batt.push({date:new Date().toISOString(), v}); batt = batt.slice(-60); store.set('batt', batt);
+  renderBattery();
+}
+function renderBattery(){
+  const el = $('battInfo'); if (!el) return;
+  if (!batt.length){ el.innerHTML = 'Reads the battery each time you Connect <b>before starting the engine</b>. Healthy: 12.4 V or more.'; return; }
+  const last = batt[batt.length-1], prev = batt.slice(-6,-1);
+  const st = last.v >= 12.4 ? ['Good','var(--ok)'] : last.v >= 12.2 ? ['OK, a bit low','var(--warn)'] : ['LOW: weak or undercharged','var(--bad)'];
+  let trend = '';
+  if (prev.length >= 3){ const avg = prev.reduce((a,b)=>a+b.v,0)/prev.length; const d = last.v-avg; if (Math.abs(d) >= 0.15) trend = d < 0 ? ' · trending <b>down</b>' : ' · trending up'; }
+  el.innerHTML = `Before start: <b style="color:${st[1]}">${last.v.toFixed(1)} V, ${st[0]}</b>${trend}<br>`
+    + batt.slice(-5).reverse().map(b=>`${new Date(b.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}: ${b.v.toFixed(1)} V`).join(' · ')
+    + `<br><span>The adapter reads ~0.1–0.2 V low. Best test: car off for 1 h+, then ignition on, Connect, don't start yet.</span>`;
+  if (last.v < 12.2) setStatus('⚠ Battery '+last.v.toFixed(1)+' V before start: low', 'busy');
 }
 
 // ---------- fault codes ----------
@@ -595,14 +814,24 @@ async function connect(){
     writer = port.writable.getWriter(); reader = port.readable.getReader(); buf='';
     await initElm();
     await detectSupport();
-    trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle();
-    setStatus('Connected','on'); ui(true); running = true; demo = false; keepAwake(); loop();
+    tripOpen = false; offSince = null;
+    try{ const rb = await rawPid('0C'); const rpm0 = rb ? ((rb[0]*256)+rb[1])/4 : 0;
+         const v0 = await readVolt(); latest.volt = v0; show('volt', v0);
+         if (rpm0 < 300){ recordBattery(v0); log('Battery before start: '+(v0!=null?v0.toFixed(1)+' V':'n/a')); }
+         else log('Engine already running, battery pre-start check skipped'); }catch(e){ log('Battery check failed: '+e.message); }
+    if (!(batt.length && batt[batt.length-1].v < 12.2 && Date.now()-new Date(batt[batt.length-1].date) < 60000)) setStatus('Connected','on');
+    ui(true); running = true; demo = false; keepAwake(); loop();
   }catch(e){ log('Connect failed: '+e.message); await stop('Not connected'); }
 }
 async function stop(msg){
+  if (!demo && dpf.active && msg==='Stopped' && !confirm('A DPF regen is in progress. Stopping the app is fine, but switching the ENGINE off now interrupts the clean. Stop the app?')) return;
+  if (demo && dpf.active) logRegen(false);
   if (demo && _sfBackup){ sinceFill = _sfBackup; _sfBackup = null; }
   if (demo && _bandsBackup){ bands = _bandsBackup; _bandsBackup = null; }
-  if (!demo) saveTrip();
+  if (demo && _regBackup){ regens = _regBackup; store.set('regens', regens); _regBackup = null; }
+  if (demo && _ibBackup){ idleBase = _ibBackup; _ibBackup = null; }
+  if (!demo) endTrip('stopped');
+  dpf.active = false; dpf.tripRegen = false; renderDpf();
   running = false; demo = false;
   try{ reader?.releaseLock(); }catch{} try{ writer?.releaseLock(); }catch{}
   try{ await port?.close(); }catch{}
@@ -615,16 +844,17 @@ function demoStep(){
   ds += 0.25;
   const sp = Math.max(0, 60 + 40*Math.sin(ds/8));
   latest = { oil:Math.min(98, 35+ds*1.5), speed:sp, rpm:800+sp*28+Math.random()*60, throttle:15+12*Math.sin(ds/3)+5, load:30+20*Math.sin(ds/4)+20,
-             coolant:Math.min(92, 40+ds*2), iat:18+Math.random(), volt:14.1+Math.random()*0.1 };
+             coolant:Math.min(92, 40+ds*2), iat:18+Math.random(), volt:14.1+Math.random()*0.1, amb:6 };
+  const regenOn = ds > 12 && ds < 30; dpf.flag8B = regenOn; dpf.trigger = regenOn ? 100 : 62; dpf.egt = regenOn ? 610 : 280;
   for (const [k,v] of Object.entries(latest)) show(k,v);
-  curLph = 0.6 + sp*0.055 + Math.max(0,latest.throttle-15)*0.15; const dtH = integrate(sp, curLph); styleUpdate(dtH); renderFuel(sp); renderStyle();
+  curLph = 0.6 + sp*0.055 + Math.max(0,latest.throttle-15)*0.15; const dtH = integrate(sp, curLph); styleUpdate(dtH); dpfUpdate(dtH); renderFuel(sp); renderStyle(); renderDpf(); renderVsExpected();
 }
-let _sfBackup=null, _bandsBackup=null;
-function startDemo(){ _sfBackup = {...sinceFill}; _bandsBackup = JSON.parse(JSON.stringify(bands)); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
+let _sfBackup=null, _bandsBackup=null, _regBackup=null, _ibBackup=null;
+function startDemo(){ ds = 0; tripOpen = false; _regBackup = [...regens]; _ibBackup = {...idleBase}; _sfBackup = {...sinceFill}; _bandsBackup = JSON.parse(JSON.stringify(bands)); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
 
 // ---------- CSV ----------
 function csv(){
-  const cols = ['t','speed','rpm','throttle','load','coolant','oil','iat','volt','lph','mpgTrip'];
+  const cols = ['t','speed','rpm','throttle','load','coolant','oil','iat','amb','volt','lph','mpgTrip','egt','dpfTrig','regen'];
   const rows = [cols.join(',')].concat(samples.map(s=>cols.map(c=>s[c]==null?'':(typeof s[c]==='number'?s[c].toFixed(2):s[c])).join(',')));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
@@ -639,7 +869,7 @@ $('btnClear').onclick = clearCodes;
 $('btnCsv').onclick = csv;
 $('btnFill').onclick = brim;
 $('btnPrice').onclick = setPrice;
-fillInfo(); renderLearned();
+fillInfo(); trainModel(); renderLearned(); renderDpf(); renderVsExpected(); renderBattery();
 window.addEventListener('pagehide', ()=>{ store.set('sinceFill', sinceFill); store.set('bands', bands); });
 if ('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
 document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && running) keepAwake(); });
