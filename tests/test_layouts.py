@@ -7,6 +7,12 @@ JS = """() => {
   if (pane.scrollHeight > pane.clientHeight + 1) bad.push(`Drive pane scrolls (${pane.scrollHeight}>${pane.clientHeight})`);
   if (pane.scrollWidth > pane.clientWidth + 1) bad.push('Drive pane scrolls sideways');
   if (de.scrollHeight > innerHeight + 1 || de.scrollWidth > innerWidth + 1) bad.push('page itself scrolls');
+  const rg = document.getElementById('regen'), rr = rg.getBoundingClientRect(), regOn = getComputedStyle(rg).display !== 'none';
+  const dr = pane.querySelector('.drive').getBoundingClientRect();
+  if (regOn && rr.bottom > dr.top + 1) bad.push('regen banner overlaps the tile grid');
+  const bb = document.getElementById('btnBig').getBoundingClientRect();
+  if (regOn && bb.top < rr.bottom) bad.push('Big-mode button overlaps the regen banner');
+  if (regOn && rg.scrollHeight > rg.clientHeight + 1) bad.push('regen banner text clipped');
   for (const t of pane.querySelectorAll('.tile')) {
     if (getComputedStyle(t).display === 'none') continue;     // tiles Big mode deliberately hides
     const r = t.getBoundingClientRect(), v = t.querySelector('.val'), l = t.querySelector('.lab'), vr = v.getBoundingClientRect();
@@ -27,10 +33,15 @@ for theme in ("night", "day"):
             page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}.png"))
             bad = page.evaluate(JS)
             check(not bad, f"{theme} {w}x{h} Drive tab fits, no clipped tiles" + ("" if not bad else ": " + "; ".join(bad)))
+            page.evaluate("ds = 13"); page.wait_for_timeout(900)      # demo DPF regen window -> banner on
+            check(page.is_visible("#regen"), f"{theme} {w}x{h} regen banner showing")
+            page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-regen.png"))
+            bad = page.evaluate(JS)
+            check(not bad, f"{theme} {w}x{h} regen banner on: grid shrinks, bottom row fully visible" + ("" if not bad else ": " + "; ".join(bad)))
             page.click("#btnBig"); page.wait_for_timeout(500)
             page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-big.png"))
             bad = page.evaluate(JS)
-            check(not bad, f"{theme} {w}x{h} BIG mode fits, no clipped tiles" + ("" if not bad else ": " + "; ".join(bad)))
+            check(page.is_visible("#regen") and not bad, f"{theme} {w}x{h} BIG mode + regen banner fits, no clipped tiles" + ("" if not bad else ": " + "; ".join(bad)))
             check(not page.is_visible("#t_speed .lab"), f"{theme} {w}x{h} big mode hides labels")
             page.click("#btnBig")
             for tab in ("style", "car", "fuel", "log"):

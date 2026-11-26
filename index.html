@@ -97,10 +97,12 @@
   .pane.sel{display:block;animation:paneIn .28s var(--ease)}
   @keyframes paneIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   #p_drive{overflow:hidden}
+  #p_drive.sel{display:flex;flex-direction:column}   /* regen banner takes its own row; the grid shrinks to fit */
   button{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px;font:inherit;font-size:var(--fs-m);font-weight:600;min-width:90px;box-shadow:var(--shadow);
     transition:transform .12s var(--ease),background-color var(--t),border-color var(--t),color var(--t),opacity var(--t)}
   button:active:not(:disabled){transform:scale(.96)}
-  button:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+  button:focus{outline:none}
+  button:focus-visible{outline:3px solid var(--acc);outline-offset:-3px}   /* keyboard only; no ring after a tap */
   button.pri{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
   button.danger{border-color:var(--bad);color:var(--bad)}
   button:disabled{opacity:.4}
@@ -112,11 +114,13 @@
   .val{flex:1;display:flex;align-items:center;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;line-height:1;font-size:clamp(18px,min(46cqh,22cqw),140px);transition:color var(--t)}
   .unit{font-size:.34em;color:var(--mut);margin-left:6px;font-weight:600;letter-spacing:0;align-self:center}
   .na .val{color:var(--na)}
+  #t_score.wait .unit{font-size:.24em}
   .hot .val{color:var(--warn)} .crit .val{color:var(--bad)}
   /* drive screen: fills the space, never scrolls */
-  .drive{height:100%;display:grid;gap:var(--gap);grid-template-columns:repeat(2,1fr);grid-template-rows:1.5fr 1.5fr repeat(4,1fr)}
+  .drive{position:relative;flex:1;min-height:0;display:grid;gap:var(--gap);grid-template-columns:repeat(2,1fr);grid-template-rows:1.5fr 1.5fr repeat(4,1fr)}
   .drive .hero{grid-column:span 2}
   .drive .hero .val{font-size:clamp(40px,min(62cqh,30cqw),220px)}
+  .drive .hero .unit{font-size:.2em;margin-left:8px}
   @media (orientation:landscape){
     .drive{grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr)}
     .drive .hero{grid-column:span 2;grid-row:span 2}
@@ -125,8 +129,9 @@
   #p_drive.big .lab{display:none}
   #p_drive.big .tile{padding:4px 14px}
   #p_drive.big .val{font-size:clamp(30px,min(76cqh,30cqw),300px)}
-  #p_drive.big .hero .val{font-size:clamp(60px,min(84cqh,31cqw),360px)}
+  #p_drive.big .hero .val{font-size:clamp(60px,min(78cqh,31cqw),360px)}
   #p_drive.big .unit{font-size:.26em}
+  #p_drive.big .hero .unit{font-size:.16em}
   #p_drive.big #t_rpm,#p_drive.big #t_score,#p_drive.big #t_oil,#p_drive.big #t_miles,#p_drive.big #t_cost{display:none}
   #p_drive.big .drive{grid-template-rows:2fr 2fr 1.2fr 1fr}
   #p_drive.big #t_coolant{grid-column:span 2}
@@ -135,7 +140,7 @@
     #p_drive.big .hero{grid-row:span 1}
     #p_drive.big #t_coolant{grid-column:span 2}
   }
-  #btnBig{position:absolute;top:calc(var(--gap) + 8px);right:calc(var(--gap) + 8px);z-index:3;width:38px;height:38px;min-width:0;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--card2);opacity:.9}
+  #btnBig{position:absolute;top:8px;right:8px;z-index:3;width:38px;height:38px;min-width:0;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--card2);opacity:.9}
   #btnBig svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #p_drive.big #btnBig{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
   /* other screens: fixed-height tile grids that reflow by width */
@@ -153,12 +158,18 @@
   @media (min-width:700px){ :root{--gap:12px;--hdr:66px;--nav:68px;--fs-m:16px;--fs-s:14px} h1{font-size:var(--fs-xl)} nav button{font-size:var(--fs-m)} }
   @media (orientation:landscape) and (max-height:500px){ :root{--hdr:48px;--nav:46px;--gap:8px} h1{font-size:var(--fs-m)} nav button{font-size:var(--fs-s)} header button{padding:6px 12px} #btnTheme{width:36px;height:36px} .tile{padding:6px 12px} }
   @media (max-width:520px){ h1{display:none} }   /* phones: the status line matters more than the wordmark */
-  #regen{position:absolute;left:var(--gap);right:var(--gap);bottom:var(--gap);z-index:3;display:none;background:var(--warnBg);border:2px solid var(--warn);color:var(--warnTxt);border-radius:var(--r-s);padding:12px 16px;font-weight:600;box-shadow:0 8px 28px #0007}
+  #regen{flex:none;display:none;margin-bottom:var(--gap);background:var(--warnBg);border:2px solid var(--warn);color:var(--warnTxt);border-radius:var(--r-s);padding:12px 16px;font-weight:600;}
   #regen b{color:var(--txt)}
   #regen.show{display:block}
+  @media (max-width:520px){ #regen{font-size:var(--fs-s);padding:9px 12px} }
+  @media (orientation:landscape) and (max-height:500px){ #regen{font-size:var(--fs-xs);padding:5px 10px;margin-bottom:6px;line-height:1.3} }
   /* adapter-asleep message: on top of every tab until the next Connect */
   #asleep{position:absolute;left:var(--gap);right:var(--gap);top:var(--gap);z-index:4;display:none;gap:14px;align-items:center;background:var(--warnBg);border:2px solid var(--warn);color:var(--warnTxt);border-radius:var(--r);padding:16px 18px;font-size:var(--fs-l);font-weight:700;line-height:1.3;box-shadow:0 10px 32px #0008;animation:paneIn .3s var(--ease)}
   #asleep.show{display:flex;cursor:pointer}
+  #emptyHint{position:absolute;inset:0;z-index:2;display:grid;place-items:center;pointer-events:none;padding:var(--gap);text-align:center}
+  #emptyHint div{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 20px;font-size:clamp(14px,4vw,20px);font-weight:700;line-height:1.35;white-space:nowrap;box-shadow:var(--shadow),0 8px 30px #0005;max-width:90%}
+  #emptyHint small{display:block;font-size:var(--fs-s);font-weight:500;color:var(--mut);margin-top:4px}
+  body.live #emptyHint,main:has(#asleep.show) #emptyHint{display:none}
   #asleep svg{flex:none;width:34px;height:34px;fill:none;stroke:var(--warn);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #asleep small{display:block;font-weight:500;font-size:var(--fs-s);opacity:.85;margin-top:4px}
   /* ===== startup splash ===== */
@@ -234,8 +245,9 @@
   <!-- DRIVE -->
   <div class="pane sel" id="p_drive">
     <div id="regen"></div>
-    <button id="btnBig" aria-label="Big mode" aria-pressed="false" title="Big mode: hide labels, maximise numbers"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <div id="emptyHint"><div>Ignition on → Connect · or tap Demo</div></div>
     <div class="drive">
+    <button id="btnBig" aria-label="Big mode" aria-pressed="false" title="Big mode: hide labels, maximise numbers"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <div class="tile hero na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div></div>
       <div class="tile hero na" id="t_mpgTrip"><div class="lab">Trip average</div><div class="val">–<span class="unit">mpg</span></div></div>
       <div class="tile na" id="t_mpgInst"><div class="lab">Instant</div><div class="val">–<span class="unit">mpg</span></div></div>
@@ -395,6 +407,7 @@ if (!supported) $('nosupport').style.display = 'block';
 function log(s){ const p=$('log'); p.textContent += s + '\n'; if (p.textContent.length>8000) p.textContent=p.textContent.slice(-6000); p.scrollTop=p.scrollHeight; }
 function setStatus(txt, state){ $('status').textContent = txt; $('dot').className = 'dot ' + (state||''); }
 function ui(connected){
+  document.body.classList.toggle('live', connected);
   $('btnConnect').disabled = connected; $('btnDemo').disabled = connected;
   $('btnStop').disabled = !connected;
   $('btnRead').disabled = !connected; $('btnClear').disabled = !connected; $('btnScan').disabled = !connected;
@@ -640,6 +653,8 @@ function styleMetrics(){
 function renderStyle(){
   const m = styleMetrics();
   show('score', m.score);
+  { const t = $('t_score'), v = t.querySelector('.val'), u = v.querySelector('.unit'), wait = m.score==null;
+    t.classList.toggle('wait', wait); u.textContent = wait ? 'after 1 min' : '/100'; if (wait) v.firstChild.nodeValue = '…'; }
   show('hacc', st.runS ? st.hacc : null); show('hbrk', st.runS ? st.hbrk : null);
   show('idle', st.runS ? m.idlePct : null); show('hirpm', st.runS ? m.hiPct : null);
   show('coast', st.moveS ? m.coastPct : null);
@@ -884,7 +899,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.0';
+const APP_VERSION = '6.0.1';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>b[0]-40], '0B':['Intake manifold pressure','kPa',b=>b[0]],

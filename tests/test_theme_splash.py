@@ -97,4 +97,34 @@ with app(viewport=(412, 915)) as page:
 with app(viewport=(412, 915)) as page:
     page.click('nav button[data-p="log"]'); page.wait_for_timeout(400)
     ver = page.inner_text("#verNote")
-    check("v6.0" in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")
+    check("v6.0.1" in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")
+
+# ---- Stage 1 polish ----
+with app(viewport=(412, 915)) as page:
+    # empty state
+    check(page.is_visible("#emptyHint") and "Ignition on → Connect · or tap Demo" in page.inner_text("#emptyHint"), "not connected: centred hint shown")
+    box, ph = page.locator("#emptyHint div").bounding_box(), page.locator("#p_drive").bounding_box()
+    check(abs((box["x"] + box["width"]/2) - (ph["x"] + ph["width"]/2)) < 2 and abs((box["y"] + box["height"]/2) - (ph["y"] + ph["height"]/2)) < 2, "hint is centred on the Drive pane")
+    check(box["height"] < 64, f"hint fits on one line ({box['height']:.0f}px tall)")
+    page.wait_for_timeout(500); page.screenshot(path=str(OUT / "empty-state.png"))
+    # no focus ring after a tap, ring for keyboard
+    page.click('nav button[data-p="style"]'); page.click('nav button[data-p="drive"]')
+    check(page.evaluate("getComputedStyle(document.querySelector('nav button[data-p=drive]')).outlineStyle") == "none", "no focus ring on a tab after a tap")
+    page.click("#btnTheme")
+    check(page.evaluate("getComputedStyle(document.activeElement).outlineStyle") == "none", "no focus ring on a header button after a tap")
+    page.keyboard.press("Tab")
+    check(page.evaluate("getComputedStyle(document.activeElement).outlineStyle") != "none", "keyboard Tab still shows a focus ring (:focus-visible)")
+    # demo: hint gone, eco score waiting text, hero unit size
+    page.click("#btnDemo"); page.wait_for_timeout(1200)
+    check(not page.is_visible("#emptyHint"), "hint hidden in demo")
+    txt = " ".join(page.inner_text("#t_score .val").split())
+    check(txt.startswith("…") and "after 1 min" in txt, f"eco score before ready shows '…' + 'after 1 min': '{txt}'")
+    page.screenshot(path=str(OUT / "polish-drive.png"))
+    ratio = page.evaluate("(() => { const u = getComputedStyle(document.querySelector('#t_speed .unit')).fontSize, v = getComputedStyle(document.querySelector('#t_speed .val')).fontSize; return parseFloat(u)/parseFloat(v); })()")
+    check(abs(ratio - 0.2) < 0.01, f"hero unit is 0.2em of the number (was 0.34em, ~60%): {ratio:.2f}")
+    page.evaluate("st.runS = 120"); page.wait_for_timeout(600)
+    txt = " ".join(page.inner_text("#t_score .val").split())
+    check(txt[0].isdigit() and "/100" in txt, f"eco score shows the number once ready: '{txt}'")
+    page.click("#btnStop"); page.wait_for_timeout(300)
+    check(page.is_visible("#emptyHint"), "hint comes back after Stop")
+    check(not page.errors, "no JS errors" + ("" if not page.errors else ": " + "; ".join(page.errors)))
