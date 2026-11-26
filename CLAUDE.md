@@ -21,8 +21,13 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - The iCar2 sleeps 30 min after engine off and wakes ONLY via its button: there is no auto-wake, so the app must say so clearly.
 - No fault codes. Skoda-only systems (brake pads, ABS) are not visible over standard OBD.
 
+## UI notes (v6.0)
+- Themes are CSS variables on `<html data-theme=day|night data-mode=auto|day|night>`, set by an inline head script (`kobdTheme`) before first paint. Never hard-code colours: use the variables.
+- Auto theme reads the cached position `kobd_loc` ({lat,lon,t}); the theme code never prompts for location. Stage 2's GPS should keep `kobd_loc` fresh.
+- Tests seed `kobd_splashDay` so the splash doesn't cover buttons (`app(splash=True)` to test it).
+
 ## Workflow (per stage)
-Run `tests/run.sh` (both tests), show screenshots from `tests/out/`, bump `APP_VERSION` (index.html) AND the
+Run `tests/run.sh` (all tests), show screenshots from `tests/out/`, bump `APP_VERSION` (index.html) AND the
 `C` cache name in `sw.js`, commit, then WAIT for the user's OK before pushing or starting the next stage.
 Never push without OK. Everything stays on-device: no logos/images from the web, GPS routes never leave the phone.
 
@@ -33,6 +38,7 @@ Never push without OK. Everything stays on-device: no logos/images from the web,
 - `tests/test_connect.py`: Connect through the mock, live values, asleep adapter.
 - `tests/test_layouts.py`: demo at 412x915, 915x412, 800x1280, 1280x800; fails on Drive overflow, clipped tiles, JS errors.
 - `tests/test_dtc.py`: two-ECU fault-code regression (no fake C0300/C0700).
+- `tests/test_theme_splash.py`: splash (text, once/day, tap skip, reduced motion), auto/day/night themes (sunrise/sunset from a permitted fix, scheme fallback, toggle, contrast), Big mode.
 - `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ -> on; pre-start battery, auto health scan, trip saved, new trip. ~1.5 min (real timers).
 - `tests/run.sh` runs all; `FAST=1 tests/run.sh` skips the engine cycle.
 - The mock honours ATS0 (no spaces in replies); the app depends on that.

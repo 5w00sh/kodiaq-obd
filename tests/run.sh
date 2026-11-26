@@ -7,4 +7,5 @@ python3 test_demo.py
 python3 test_connect.py
 python3 test_layouts.py
 python3 test_dtc.py
+python3 test_theme_splash.py
 [ -n "$FAST" ] || python3 test_engine_cycle.py
