@@ -1,4 +1,5 @@
-"""Test 7: fuel left, range, low-fuel colours, smoothing, Big-mode coolant/range swap, auto fill-up detection + receipt prompt."""
+"""Test 7: split Fuel hero (range + @NN mpg basis, remaining litres/% + £ to full), range basis rules, low-fuel colours, smoothing,
+Big-mode hot-coolant rule, auto fill-up detection + receipt prompt."""
 import json, time
 from common import app, check, OUT
 
@@ -24,10 +25,13 @@ with app() as page:
     connect(page); wait(page, "fuelMed != null", 15000); page.wait_for_timeout(1500)
     page.screenshot(path=str(OUT / "fuel-drive.png"))
     left = 70 * 58 / 100
-    t = tile(page)
-    check(abs(int(t.split()[0]) - left/0.10) <= 3, f"Drive Range tile: {t}  (40.6 L at 0.10 L/mi = {left/0.10:.0f} mi; the gauge is 8-bit so +/-1 is fine)")
-    check(f"{round(left)} L" in t, "tile shows litres left small beside the miles")
-    check(page.inner_text("#t_range .lab").strip().lower() == "range" and not page.is_visible("#t_miles"), "Range tile replaced the Trip-miles tile")
+    num = int(page.inner_text("#t_range .num"))
+    check(abs(num - left/0.10) <= 3, f"Range tile: {num} mi  (40.6 L at 0.10 L/mi = {left/0.10:.0f} mi; the gauge is 8-bit so +/-1 is fine)")
+    check(page.inner_text("#t_range .basis").strip() == "@45 mpg", f"basis shown on the tile: {page.inner_text('#t_range .basis')} (0.10 L/mi = 45.5 mpg)")
+    check(page.inner_text("#remL").strip() == "41 L (70%)", f"Estimated remaining: {page.inner_text('#remL')}")
+    check(page.inner_text("#remCost").strip() == f"£{round((58-left)*1.45)} to full", f"{page.inner_text('#remCost')}  (litres to full x saved diesel price)")
+    check(page.inner_text("#t_range .lab").strip().lower() == "range" and page.inner_text("#t_remain .lab").strip().lower() == "estimated remaining", "labels: Range / Estimated remaining")
+    check(page.locator("#t_miles").count() == 0 and page.locator("#fuelhero #t_range").count() == 1, "no separate small Range tile; Range + Remaining live in the split Fuel hero")
     page.click('nav button[data-p="fuel"]'); page.wait_for_timeout(500)
     info = page.inner_text("#rangeInfo")
     page.screenshot(path=str(OUT / "fuel-tab.png"))
@@ -41,14 +45,27 @@ with app() as page:
     check(page.evaluate("rangeInfo().basis") == "last 50 mi", "basis: last 50 mi")
     check(not page.errors, "no JS errors " + "; ".join(page.errors))
 
-# ---------------- fallbacks: this trip, then 45 mpg ----------------
+# ---------------- range basis: 50+ miles -> last 50; fewer -> all-time trip average (even short trips); none -> 40 mpg ----------------
 with app() as page:
     page.evaluate("FUEL_WIN_MS = 6000"); connect(page); wait(page, "fuelMed != null", 15000)
     r = page.evaluate("rangeInfo()")
-    check(r["basis"] == "45 mpg assumed" and abs(r["mpg"] - 45) < .01, f"no trips yet: falls back to 45 mpg ({r['miles']:.0f} mi)")
-    page.evaluate("tripOpen = true; trip.km = 16.09344; trip.L = 1.2")         # 10 miles, 1.2 L = 0.12 L/mi
+    check(r["basis"] == "40 mpg assumed" and abs(r["mpg"] - 40) < .01, f"no trips yet: 40 mpg assumed, not 45 ({r['miles']:.0f} mi)")
+    check(page.inner_text("#t_range .basis").strip() == "@40 mpg", "tile shows '@40 mpg'")
+    page.evaluate("tripOpen = true; trip.km = 16.09344; trip.L = 1.2")             # a 10-mile trip in progress does NOT change the basis any more
+    check(page.evaluate("rangeInfo().basis") == "40 mpg assumed", "an unsaved trip in progress does not replace the 40 mpg default")
+with app() as page:
+    seed(page, [trip(1, 2.0, 0.125), trip(2, 0.3, 0.125)])                          # only 2.3 miles of history, short trips
+    page.evaluate("FUEL_WIN_MS = 6000"); connect(page); wait(page, "fuelMed != null", 15000)
     r = page.evaluate("rangeInfo()")
-    check(r["basis"] == "this trip" and abs(r["lpm"] - 0.12) < .001, f"then this trip's own rate ({r['lpm']:.3f} L/mi)")
+    check(r["basis"] == "all-time average" and abs(r["lpm"] - 0.125) < .004, f"under 50 miles: all-time trip average ({r['mpg']:.1f} mpg) even from short trips")
+    check(page.inner_text("#t_range .basis").strip() == "@36 mpg", f"tile: {page.inner_text('#t_range .basis')}")
+with app() as page:
+    seed(page, [trip(i, 12, 0.20) for i in range(1, 5)])                            # 48 miles: still under 50 -> all-time
+    page.evaluate("FUEL_WIN_MS = 6000"); connect(page); wait(page, "fuelMed != null", 15000)
+    check(page.evaluate("consumption().basis") == "all-time average", "48 miles: still the all-time average")
+    page.evaluate("tripsCache.push({miles: 4, litres: 0.4, mpg: 45})")              # 52 miles now; the newest 50 = 4 mi at 0.10 + 46 mi at 0.20
+    c = page.evaluate("consumption()")
+    check(c["basis"] == "last 50 mi" and abs(c["lpm"] - (0.4 + 46*0.2)/50) < .002, f"50+ miles: last 50 miles rate ({c['mpg']:.1f} mpg)")
 
 # ---------------- low fuel colours ----------------
 with app() as page:
@@ -73,22 +90,22 @@ with app() as page:
     n = page.evaluate("fuelWin.length"); page.evaluate("fuelFreezeUntil = performance.now() + 4000"); page.wait_for_timeout(2500)
     check(page.evaluate("fuelWin.length") == n, "samples ignored while frozen (hard braking / accelerating)")
 
-# ---------------- Big mode: range replaces coolant when warm, coolant comes back when cold/hot ----------------
+# ---------------- Big mode: coolant only when hot (> 105 C), in fuel flow's place ----------------
 with app() as page:
     seed(page, recent, big=True)
     page.evaluate("FUEL_WIN_MS = 4000"); connect(page); wait(page, "fuelMed != null", 15000)
     def state(c):
         page.evaluate(f"__mock.coolantC = {c}"); page.wait_for_timeout(2800)
-        return page.is_visible("#t_range"), page.is_visible("#t_coolant")
-    check(state(60) == (False, True), "Big mode, coolant 60 C (warming up): coolant tile")
-    check(state(90) == (True, False), "Big mode, coolant 90 C (normal): range tile replaces coolant")
-    page.screenshot(path=str(OUT / "fuel-big-range.png"))
-    check(state(74) == (True, False), "74 C: stays on range (hysteresis, no flicker)")
-    check(state(106) == (False, True), "106 C (hot): coolant is back")
-    check(page.inner_text("#t_coolant .val").split()[0] == "106" and "hot" in page.evaluate("document.getElementById('t_coolant').className"), "and it is shown amber")
-    check(state(90) == (True, False), "back to 90 C: range again")
-    page.click("#btnBig"); page.wait_for_timeout(300)
-    check(page.is_visible("#t_range") and page.is_visible("#t_coolant"), "normal mode: Range and Coolant tiles both on screen")
+        return page.is_visible("#t_coolant"), page.is_visible("#t_lph"), page.is_visible("#t_range")
+    check(state(90) == (False, True, True), "Big mode, coolant 90 C (normal): coolant hidden, fuel flow + range shown")
+    check(state(104) == (False, True, True), "104 C (hot-ish, not over 105): still hidden")
+    check(state(106) == (True, False, True), "106 C: coolant appears in fuel flow's place, range stays")
+    check("hot" in page.evaluate("document.getElementById('t_coolant').className") and page.inner_text("#t_coolant .val").split()[0] == "106", "and it is shown amber")
+    page.screenshot(path=str(OUT / "fuel-big-hot.png"))
+    check(state(104) == (True, False, True), "104 C: stays (hysteresis, no flicker)")
+    check(state(102) == (False, True, True), "102 C: gone again")
+    page.click("#btnBig"); page.wait_for_timeout(400)
+    check(page.is_visible("#t_coolant") and page.is_visible("#t_lph") and page.is_visible("#t_range") and page.is_visible("#t_remain"), "normal mode: coolant, fuel flow, range and remaining all on screen")
 
 # ---------------- auto fill-up: engine off -> on, +55 points while stationary ----------------
 with app() as page:
@@ -143,7 +160,7 @@ with app() as page:
 # demo and unsupported fuel: quiet
 with app(mock=False) as page:
     page.click("#btnDemo"); page.wait_for_timeout(5000)
-    check(page.inner_text("#t_range .val").split()[0].isdigit(), "Demo shows a range")
+    check(page.inner_text("#t_range .num").isdigit() and "£" in page.inner_text("#remCost"), "Demo shows a range and £ to full")
     check(ls(page, "fuelLast") is None and ls(page, "fillPending") is None, "demo never writes fuel history or fills")
     page.click("#btnStop")
     check(not page.errors, "no JS errors " + "; ".join(page.errors))

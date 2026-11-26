@@ -116,32 +116,63 @@
   .na .val{color:var(--na)}
   #t_score.wait .unit{font-size:.24em}
   .hot .val{color:var(--warn)} .crit .val{color:var(--bad)}
-  /* drive screen: fills the space, never scrolls */
-  .drive{position:relative;flex:1;min-height:0;display:grid;gap:var(--gap);grid-template-columns:repeat(2,1fr);grid-template-rows:1.5fr 1.5fr repeat(4,1fr)}
-  .drive .hero{grid-column:span 2}
-  .drive .hero .val{font-size:clamp(40px,min(62cqh,30cqw),220px)}
-  .drive .hero .unit{font-size:.2em;margin-left:8px}
+  /* ===== Drive tab (v6.0.3). Readability FLOORS, enforced by tests/test_readability.py. If something does not fit, tiles are dropped
+     (container-query tiers below), never shrunk below these sizes. Phone = shorter side < 700 px; tablet = both sides >= 700 px. ===== */
+  :root{--f-speed:104px;--f-hero:60px;--f-small:34px;--f-sec:22px;--f-lab:13px;--f-basis:16px;--h-spd:138px;--h-fuel:157px;--h-trip:94px;--h-sm:65px;--g:8px}
+  @media (min-width:700px) and (min-height:700px){ :root{--f-speed:140px;--f-hero:84px;--f-small:48px;--f-sec:30px;--f-lab:16px;--f-basis:22px;--h-spd:190px;--h-fuel:205px;--h-trip:126px;--h-sm:90px;--g:12px} }
+  .lab{font-size:var(--f-lab)}
+  .unit{font-size:max(13px,.34em)}
+  .drive{position:relative;container-type:size;container-name:drive;flex:1;min-height:0;display:grid;gap:var(--g);grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-rows:minmax(var(--h-spd),1fr) minmax(var(--h-fuel),1.15fr) minmax(var(--h-trip),.8fr);grid-auto-rows:minmax(var(--h-sm),.6fr)}
+  .drive .tile{padding:6px 12px}
+  #t_speed,#t_mpgTrip,.fuelhero,#t_oil{grid-column:1/-1}
+  .fuelhero{display:flex;flex-direction:column;gap:6px;min-height:0}
+  .fuelhero .tile{min-height:0}
+  #t_range{flex:1.65 1 0} #t_remain{flex:1 1 0}
+  .drive .sm{display:none}
+  #t_speed .val{font-size:clamp(var(--f-speed),min(64cqh,34cqw),calc(var(--f-speed)*2))}
+  #t_mpgTrip .val,#t_range .val{font-size:clamp(var(--f-hero),min(46cqh,24cqw),calc(var(--f-hero)*1.5))}
+  .drive .sm .val{font-size:clamp(var(--f-small),min(46cqh,20cqw),calc(var(--f-small)*1.5))}
+  .drive .hero .unit{font-size:max(13px,.2em);margin-left:8px}
+  #t_range .unit{font-size:max(14px,.3em);margin-left:6px}
+  .basis{margin-left:auto;padding-left:8px;font-size:var(--f-basis);font-weight:600;color:var(--mut);letter-spacing:0;white-space:nowrap}
+  #t_remain .sec{flex:1;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:var(--f-sec);font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:0}
+  #t_remain.na .sec{color:var(--na)}
+  @container (max-width:210px){ #t_remain .sec{flex-direction:column;align-items:flex-start;justify-content:center;gap:0;line-height:1.15} }
+  #t_cost.cap .unit{display:none}
+  @container (max-width:170px){ #t_cost .unit{display:none} }
   @media (orientation:landscape){
-    .drive{grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr)}
-    .drive .hero{grid-column:span 2;grid-row:span 2}
+    .drive{grid-template-columns:repeat(24,minmax(0,1fr));grid-template-rows:minmax(var(--h-fuel),1fr);grid-auto-rows:minmax(var(--h-sm),.6fr)}
+    #t_speed,#t_mpgTrip{grid-column:span 7} .fuelhero{grid-column:span 10}       /* the fuel tile is the widest: its two 22 px lines sit side by side */
+    .drive .sm,#t_oil{grid-column:span 6}
   }
-  /* big mode: no labels, only the numbers that matter, as large as the tile allows */
+  /* tiers: lower-priority tiles appear only when the space is there (priority: instant, fuel flow, rpm, coolant, score, cost, oil) */
+  @container drive (max-aspect-ratio:1/1) and (min-height:478px){ #t_mpgInst,#t_lph{display:flex} }
+  @container drive (max-aspect-ratio:1/1) and (min-height:551px){ #t_rpm,#t_coolant{display:flex} }
+  @container drive (max-aspect-ratio:1/1) and (min-height:624px){ #t_score,#t_cost{display:flex} }
+  @container drive (max-aspect-ratio:1/1) and (min-height:697px){ #t_oil{display:flex} }
+  @container drive (min-aspect-ratio:1/1) and (max-width:879px) and (min-height:238px){ #t_mpgInst,#t_lph,#t_rpm,#t_coolant{display:flex} }
+  @container drive (min-aspect-ratio:1/1) and (max-width:879px) and (min-height:311px){ #t_score,#t_cost,#t_oil{display:flex} }
+  @container drive (min-aspect-ratio:1/1) and (min-width:880px) and (min-height:238px){ #t_mpgInst,#t_lph,#t_rpm,#t_coolant,#t_score,#t_cost{display:flex} .drive .sm,.drive #t_oil{grid-column:span 4} }
+  @container drive (min-aspect-ratio:1/1) and (min-width:880px) and (min-height:311px){ #t_oil{display:flex} }
+  @media (min-width:700px) and (min-height:700px){ .drive .sm{display:flex} }                      /* tablets: room for everything */
+  @media (min-width:700px) and (min-height:700px) and (orientation:landscape){ .drive .sm{grid-column:span 6} .drive #t_oil{grid-column:span 12} }
+  /* big mode: no labels; speed, range, trip average, instant, fuel flow. Coolant only when hot (> 105 C), in fuel flow's place. */
   #p_drive.big .lab{display:none}
   #p_drive.big .tile{padding:4px 14px}
-  #p_drive.big .val{font-size:clamp(30px,min(76cqh,30cqw),300px)}
-  #p_drive.big .hero .val{font-size:clamp(60px,min(70cqh,31cqw),360px)}
-  #p_drive.big .unit{font-size:.26em}
-  #p_drive.big .hero .unit{font-size:.16em}
-  #p_drive.big #t_rpm,#p_drive.big #t_score,#p_drive.big #t_oil,#p_drive.big #t_range,#p_drive.big #t_cost{display:none}
-  #p_drive.big.swap #t_coolant{display:none}
-  #p_drive.big.swap #t_range{display:flex;grid-column:span 2}
-  #p_drive.big .drive{grid-template-rows:2fr 2fr 1.2fr 1fr}
-  #p_drive.big #t_coolant{grid-column:span 2}
-  @media (orientation:landscape){
-    #p_drive.big .drive{grid-template-rows:2fr 1fr}
-    #p_drive.big .hero{grid-row:span 1}
-    #p_drive.big #t_coolant{grid-column:span 2}
-  }
+  #p_drive.big #t_speed .val{font-size:clamp(var(--f-speed),min(78cqh,36cqw),calc(var(--f-speed)*2.2))}
+  #p_drive.big #t_mpgTrip .val,#p_drive.big #t_range .val{font-size:clamp(var(--f-hero),min(60cqh,28cqw),calc(var(--f-hero)*1.5))}
+  #p_drive.big .sm .val{font-size:clamp(var(--f-small),min(60cqh,24cqw),calc(var(--f-small)*1.5))}
+  #p_drive.big #t_remain,#p_drive.big #t_rpm,#p_drive.big #t_score,#p_drive.big #t_oil,#p_drive.big #t_cost,#p_drive.big #t_coolant{display:none!important}
+  #p_drive.big #t_mpgInst,#p_drive.big #t_lph{display:flex!important}
+  #p_drive.big.hotc #t_coolant{display:flex!important}
+  #p_drive.hotc #fillCard{display:none!important}      /* a hot engine outranks the fill-up prompt for space */
+  #p_drive.big.hotc #t_lph{display:none!important}
+  #p_drive.big .drive{grid-template-rows:minmax(var(--h-spd),1.3fr) minmax(var(--h-trip),1fr) minmax(var(--h-trip),1fr);grid-auto-rows:minmax(var(--h-sm),.8fr)}
+  #p_drive.big #t_range{flex:1 1 0}
+  @media (orientation:landscape){ #p_drive.big .drive{grid-template-rows:minmax(var(--h-spd),1.3fr);grid-auto-rows:minmax(var(--h-sm),.7fr)} }
+  @container drive (max-aspect-ratio:1/1) and (max-height:414px){ #p_drive.big #t_mpgInst,#p_drive.big #t_lph,#p_drive.big #t_coolant{display:none!important} }   /* too short for the small row: drop it, never shrink text */
+  @container drive (min-aspect-ratio:1/1) and (max-height:210px){ #p_drive.big #t_mpgInst,#p_drive.big #t_lph,#p_drive.big #t_coolant{display:none!important} }
   #btnBig{position:absolute;top:8px;right:8px;z-index:3;width:38px;height:38px;min-width:0;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--card2);opacity:.9}
   #btnBig svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #p_drive.big #btnBig{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
@@ -258,15 +289,18 @@
     <div class="drive">
     <button id="btnBig" aria-label="Big mode" aria-pressed="false" title="Big mode: hide labels, maximise numbers"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <div class="tile hero na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div></div>
+      <div class="fuelhero" id="fuelhero">
+        <div class="tile na" id="t_range"><div class="lab">Range</div><div class="val"><span class="num">–</span><span class="unit">mi</span><span class="basis">@40 mpg</span></div></div>
+        <div class="tile na" id="t_remain"><div class="lab">Estimated remaining</div><div class="sec"><span id="remL">–</span><span id="remCost">–</span></div></div>
+      </div>
       <div class="tile hero na" id="t_mpgTrip"><div class="lab">Trip average</div><div class="val">–<span class="unit">mpg</span></div></div>
-      <div class="tile na" id="t_mpgInst"><div class="lab">Instant</div><div class="val">–<span class="unit">mpg</span></div></div>
-      <div class="tile na" id="t_lph"><div class="lab">Fuel flow</div><div class="val">–<span class="unit">L/h</span></div></div>
-      <div class="tile na" id="t_rpm"><div class="lab">RPM</div><div class="val">–</div></div>
-      <div class="tile na" id="t_score"><div class="lab">Eco score</div><div class="val">–<span class="unit">/100</span></div></div>
-      <div class="tile na" id="t_coolant"><div class="lab">Coolant</div><div class="val">–<span class="unit">°C</span></div></div>
-      <div class="tile na" id="t_oil"><div class="lab">Oil</div><div class="val">–<span class="unit">°C</span></div></div>
-      <div class="tile na" id="t_range"><div class="lab">Range</div><div class="val">–<span class="unit">mi</span></div></div>
-      <div class="tile na" id="t_cost"><div class="lab">Trip cost</div><div class="val">–</div></div>
+      <div class="tile sm na" id="t_mpgInst"><div class="lab">Instant</div><div class="val">–<span class="unit">mpg</span></div></div>
+      <div class="tile sm na" id="t_lph"><div class="lab">Fuel flow</div><div class="val">–<span class="unit">L/h</span></div></div>
+      <div class="tile sm na" id="t_rpm"><div class="lab">RPM</div><div class="val">–</div></div>
+      <div class="tile sm na" id="t_coolant"><div class="lab">Coolant</div><div class="val">–<span class="unit">°C</span></div></div>
+      <div class="tile sm na" id="t_score"><div class="lab">Eco score</div><div class="val">–<span class="unit">/100</span></div></div>
+      <div class="tile sm na" id="t_cost"><div class="lab">Trip cost</div><div class="val">–</div></div>
+      <div class="tile sm na" id="t_oil"><div class="lab">Oil</div><div class="val">–<span class="unit">°C</span></div></div>
     </div>
   </div>
 
@@ -923,7 +957,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.0.2';
+const APP_VERSION = '6.0.3';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>b[0]-40], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1284,7 +1318,7 @@ document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState
 // over ~90 s that ignores samples taken during hard accelerating/braking.
 // =====================================================================
 let tank = store.get('tank', 58);                           // litres: Kodiaq Mk1 facelift 2.0 TDI 4x4 DSG = 58
-let FUEL_WIN_MS = 90000, fuelWin = [], fuelMed = null, fuelChecked = false, fuelHist = [], fuelFreezeUntil = 0, fuelSaveAt = 0, stillSince = null, swapRange = false;
+let FUEL_WIN_MS = 90000, fuelWin = [], fuelMed = null, fuelChecked = false, fuelHist = [], fuelFreezeUntil = 0, fuelSaveAt = 0, stillSince = null, hotCool = false;
 let fuelBase = (store.get('fuelLast', null) || {}).pct ?? null;   // last level seen on a previous drive
 let tripsCache = store.get('trips', []), rangeAt = 0, rangeShown = false;
 const median = a => { const s = [...a].sort((x,y)=>x-y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m-1]+s[m])/2; };
@@ -1317,15 +1351,16 @@ function fuelRefuelled(a, b){
 // ---- range ----
 function consumption(){                                                             // litres per mile
   const cur = [];
-  if ((tripOpen || demo) && tripKm()/KM_PER_MILE >= 1 && trip.L > 0) cur.push([tripKm()/KM_PER_MILE, trip.L]);
-  const saved = tripsCache.filter(t=>t.miles >= 0.5 && t.litres > 0).map(t=>[t.miles, t.litres]).reverse();
-  let mi = 0, L = 0, sm = 0;
-  for (const [m,l,isSaved] of [...cur.map(x=>[...x,false]), ...saved.map(x=>[...x,true])]){      // newest ~50 miles, this trip first
-    const take = Math.min(m, 50-mi); L += l*take/m; mi += take; if (isSaved) sm += take; if (mi >= 50) break; }
-  const allM = saved.reduce((a,x)=>a+x[0],0), allL = saved.reduce((a,x)=>a+x[1],0), all = allM >= 5 ? allL/allM : null;
-  if (sm >= 5) return {lpm:L/mi, basis:'last '+Math.round(mi)+' mi', all};
-  if (cur.length) return {lpm:cur[0][1]/cur[0][0], basis:'this trip', all};
-  return {lpm:L_PER_GAL/45, basis:'45 mpg assumed', all};
+  if ((tripOpen || demo) && tripKm()/KM_PER_MILE >= 0.5 && trip.L > 0) cur.push([tripKm()/KM_PER_MILE, trip.L]);
+  const saved = tripsCache.filter(t=>t.miles >= 0.05 && t.litres > 0).map(t=>[t.miles, t.litres]).reverse();   // even short trips count
+  const allM = saved.reduce((a,x)=>a+x[0],0), allL = saved.reduce((a,x)=>a+x[1],0), all = allM > 0 ? allL/allM : null;
+  let mi = 0, L = 0;
+  for (const [m,l] of [...cur, ...saved]){ const take = Math.min(m, 50-mi); L += l*take/m; mi += take; if (mi >= 50) break; }   // newest 50 miles, this trip first
+  let lpm, basis;
+  if (mi >= 50){ lpm = L/mi; basis = 'last 50 mi'; }
+  else if (all != null){ lpm = all; basis = 'all-time average'; }                  // under 50 miles of history: your trip average so far
+  else { lpm = L_PER_GAL/40; basis = '40 mpg assumed'; }
+  return {lpm, basis, all, mpg:L_PER_GAL/lpm};
 }
 function rangeInfo(){
   if (fuelMed==null) return null;
@@ -1333,18 +1368,23 @@ function rangeInfo(){
   return {pct:fuelMed, left, lpm:c.lpm, basis:c.basis, miles:left/c.lpm, allMiles:c.all ? left/c.all : null, mpg:L_PER_GAL/c.lpm, fillL, cost:fillL*price};
 }
 function renderRange(){
-  const t = $('t_range'), v = t.querySelector('.val'), r = rangeInfo();
+  const t = $('t_range'), rm = $('t_remain'), r = rangeInfo(), c = consumption();
   t.classList.remove('hot','crit');
-  if (!r){ t.classList.add('na'); v.innerHTML = '–<span class="unit">'+(fuelUnsupported() ? 'no fuel level' : 'reading…')+'</span>'; }
-  else { t.classList.remove('na'); v.innerHTML = Math.round(r.miles)+'<span class="unit">mi · '+Math.round(r.left)+' L</span>';
-    if (r.miles < 40) t.classList.add('crit'); else if (r.miles < 80) t.classList.add('hot'); }      // amber < 80 mi, red < 40 mi
+  t.querySelector('.val').innerHTML = '<span class="num">'+(r ? Math.round(r.miles) : '–')+'</span><span class="unit">mi</span><span class="basis">@'+Math.round(c.mpg)+' mpg</span>';
+  t.classList.toggle('na', !r); rm.classList.toggle('na', !r);
+  if (!r){ $('remL').textContent = '–'; $('remCost').textContent = fuelUnsupported() ? 'no fuel level' : 'reading…'; }
+  else {
+    $('remL').textContent = Math.round(r.left)+' L ('+Math.round(r.pct)+'%)';
+    $('remCost').textContent = r.fillL < 0.5 ? 'Full' : '£'+Math.round(r.cost)+' to full';
+    if (r.miles < 40) t.classList.add('crit'); else if (r.miles < 80) t.classList.add('hot');      // amber < 80 mi, red < 40 mi
+  }
   const now = Date.now(); if (r && rangeShown && now - rangeAt < 2000) return; rangeAt = now; rangeShown = !!r;     // Fuel tab text: first value at once, then every 2 s
   $('btnTank').textContent = 'Tank size: '+tank+' L';
   const el = $('rangeInfo'), last = store.get('fuelLast', null);
   if (!r){ el.innerHTML = fuelUnsupported() ? 'This car does not report a fuel level.' : (last ? `Last seen: <b style="color:var(--txt)">${last.pct.toFixed(0)}% (${(last.pct*tank/100).toFixed(0)} L)</b>, ${ago(last.t)}. Live reading starts a few seconds after you connect.` : 'Reads the tank sensor once connected.'); return; }
   el.innerHTML = `<div>Fuel left: <b style="color:var(--txt)">${r.left.toFixed(1)} L (${r.pct.toFixed(0)}%)</b></div>`
-    + `<div>Range: <b style="color:${r.miles<40?'var(--bad)':r.miles<80?'var(--warn)':'var(--txt)'}">${Math.round(r.miles)} mi</b> at your ${r.basis} rate (${r.mpg.toFixed(1)} mpg)</div>`
-    + (r.allMiles!=null ? `<div>At your all-time average: <b style="color:var(--txt)">${Math.round(r.allMiles)} mi</b></div>` : '')
+    + `<div>Range: <b style="color:${r.miles<40?'var(--bad)':r.miles<80?'var(--warn)':'var(--txt)'}">${Math.round(r.miles)} mi</b> @${Math.round(r.mpg)} mpg (${r.basis})</div>`
+    + (r.allMiles!=null && r.basis==='last 50 mi' ? `<div>At your all-time average: <b style="color:var(--txt)">${Math.round(r.allMiles)} mi</b></div>` : '')
     + `<div>To fill the tank: ${r.fillL.toFixed(0)} L ≈ <b style="color:var(--txt)">£${r.cost.toFixed(2)}</b> at £${price.toFixed(3)}/L</div>`;
 }
 function ago(t){ const m = Math.round((Date.now()-t)/60000); return m < 2 ? 'just now' : m < 120 ? m+' min ago' : m < 2880 ? Math.round(m/60)+' h ago' : Math.round(m/1440)+' days ago'; }
@@ -1352,12 +1392,12 @@ function setTank(){
   const v = parseFloat(prompt('Fuel tank size in litres (50–70). Kodiaq Mk1 facelift 2.0 TDI 4x4 DSG: 58', tank));
   if (v >= 50 && v <= 70){ tank = Math.round(v*2)/2; store.set('tank', tank); rangeAt = 0; renderRange(); } else if (!isNaN(v)) setStatusHint('Tank size must be 50–70 L');
 }
-// Big mode: range takes coolant's place once the engine is warm; coolant comes back while warming up or if it runs hot
+// Big mode: coolant is hidden unless it is hot (> 105 C); then it takes fuel flow's place until it cools below 103
 function bigSwap(){
-  const c = latest.coolant; let s = swapRange;
-  if (window.__forceSwap != null) s = !!window.__forceSwap;                         // test hook
-  else { if (c==null) s = false; else if (!s && c > 75 && c < 104) s = true; else if (s && (c <= 73 || c >= 102)) s = false; if (s && !rangeInfo()) s = false; }
-  swapRange = s; $('p_drive').classList.toggle('swap', s);
+  const c = latest.coolant; let h = hotCool;
+  if (window.__forceHot != null) h = !!window.__forceHot;                           // test hook
+  else if (c==null) h = false; else if (!h && c > 105) h = true; else if (h && c <= 103) h = false;
+  hotCool = h; $('p_drive').classList.toggle('hotc', h);
 }
 
 // ---- fill-up prompt: a card in the Drive tab, shown only while stationary, never blocks anything ----

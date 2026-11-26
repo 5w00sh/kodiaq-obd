@@ -26,8 +26,13 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - Auto theme reads the cached position `kobd_loc` ({lat,lon,t}); the theme code never prompts for location. Stage 2's GPS should keep `kobd_loc` fresh.
 - Tests seed `kobd_splashDay` so the splash doesn't cover buttons (`app(splash=True)` to test it).
 
+## Drive tab layout + readability floors (v6.0.3)
+- Hard floors, enforced by `tests/test_readability.py` at 360x760, 760x360, 412x915, 915x412, 800x1280, 1280x800, both themes, normal + Big mode, with the DPF banner (and fill card): speed digits >= 72 px tall (ink, measured via canvas) on phones / 96 px on tablets and always the largest number; Range miles + Trip average >= 56 px; small tiles' figures >= 32 px; secondary lines ("36 L (62%)", "£42 to full") >= 20 px and never truncated; labels >= 12 px. Tokens: `--f-speed/--f-hero/--f-small/--f-sec/--f-lab` (phone vs tablet). NEVER shrink text to fit: add/adjust a container-query tier on `.drive` so a lower-priority tile is dropped instead (priority: instant, fuel flow, rpm, coolant, score, cost, oil).
+- Split Fuel hero (`#fuelhero`): `#t_range` (miles + `@NN mpg` basis) over `#t_remain` (`36 L (62%)`, `£NN to full`). Range basis: last 50 miles if >= 50 mi of trips, else the all-time trip average (even short trips), else 40 mpg.
+- Big mode: speed, range, trip average, instant, fuel flow; coolant only when > 105 C (replaces fuel flow, hides the fill card).
+
 ## Fuel & range (v6.0.2)
-- Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range uses the newest ~50 miles of saved trips (then this trip, then 45 mpg).
+- Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
 - Auto fill-up: level +10 points (vs last session, or vs the lowest of the last 10 min) -> `kobd_fillPending`; the Drive card appears only after 8 s stationary. A fill to >= 92 % with a receipt feeds `recordFill()` (pump calibration); smaller top-ups are only logged. Demo never writes fuel data.
 
 ## Workflow (per stage)
@@ -45,6 +50,7 @@ Never push without OK. Everything stays on-device: no logos/images from the web,
 - `tests/test_dtc.py`: two-ECU fault-code regression (no fake C0300/C0700).
 - `tests/test_theme_splash.py`: splash (text, once/day, tap skip, reduced motion), auto/day/night themes (sunrise/sunset from a permitted fix, scheme fallback, toggle, contrast), Big mode.
 - `tests/test_fuel.py`: fuel left (PID 2F x tank), range (last ~50 mi / this trip / 45 mpg, all-time), low-fuel colours, smoothing, Big-mode coolant/range swap, auto fill-up detection + receipt prompt + calibration.
+- `tests/test_readability.py`: the hard readability floors above (72 states).
 - `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ -> on; pre-start battery, auto health scan, trip saved, new trip. ~1.5 min (real timers).
 - `tests/run.sh` runs all; `FAST=1 tests/run.sh` skips the engine cycle.
 - The mock honours ATS0 (no spaces in replies); the app depends on that.

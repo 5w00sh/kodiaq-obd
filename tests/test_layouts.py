@@ -21,9 +21,9 @@ JS = """() => {
   if (regOn && rg.scrollHeight > rg.clientHeight + 1) bad.push('regen banner text clipped');
   for (const t of pane.querySelectorAll('.tile')) {
     if (getComputedStyle(t).display === 'none') continue;     // tiles Big mode deliberately hides
-    const r = t.getBoundingClientRect(), v = t.querySelector('.val'), l = t.querySelector('.lab'), vr = v.getBoundingClientRect();
+    const r = t.getBoundingClientRect(), v = t.querySelector('.val, .sec'), l = t.querySelector('.lab'), vr = v.getBoundingClientRect();
     if (r.width < 40 || r.height < 30) bad.push(t.id + ' collapsed ' + Math.round(r.width) + 'x' + Math.round(r.height));
-    if (t.scrollHeight > t.clientHeight + 1 || t.scrollWidth > t.clientWidth + 1) bad.push(t.id + ' content clipped');
+    if (t.scrollWidth > t.clientWidth + 1) bad.push(t.id + ' content clipped sideways');   // vertical glyph ink is checked in test_readability.py
     if (v.scrollWidth > v.clientWidth + 1) bad.push(t.id + ' number clipped');
     if (l.scrollWidth > l.clientWidth + 1) bad.push(t.id + ' label truncated');
     if (vr.bottom > r.bottom + 1 || vr.right > r.right + 1 || vr.top < r.top - 1) bad.push(t.id + ' number outside tile');
@@ -39,7 +39,8 @@ for theme in ("night", "day"):
             page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}.png"))
             bad = page.evaluate(JS)
             check(not bad, f"{theme} {w}x{h} Drive tab fits, no clipped tiles" + ("" if not bad else ": " + "; ".join(bad)))
-            check(page.is_visible("#t_range") and page.inner_text("#t_range .val").split()[0].isdigit(), f"{theme} {w}x{h} Range tile shows miles ({' '.join(page.inner_text('#t_range .val').split())})")
+            check(page.is_visible("#t_range") and page.inner_text("#t_range .num").isdigit() and "@" in page.inner_text("#t_range .basis"), f"{theme} {w}x{h} Range tile shows miles + basis ({' '.join(page.inner_text('#t_range .val').split())})")
+            check(page.is_visible("#t_remain") and "L (" in page.inner_text("#remL") and "£" in page.inner_text("#remCost"), f"{theme} {w}x{h} Remaining tile: {page.inner_text('#remL')} / {page.inner_text('#remCost')}")
             page.evaluate("window.__forceFill = true"); page.wait_for_timeout(300)       # the fill-up prompt card, on top of everything else
             bad = page.evaluate(JS)
             check(not bad and page.is_visible("#fillCard"), f"{theme} {w}x{h} fill-up card: grid shrinks, nothing clipped" + ("" if not bad else ": " + "; ".join(bad)))
@@ -54,11 +55,11 @@ for theme in ("night", "day"):
             bad = page.evaluate(JS)
             check(page.is_visible("#regen") and not bad, f"{theme} {w}x{h} BIG mode + regen banner fits, no clipped tiles" + ("" if not bad else ": " + "; ".join(bad)))
             check(not page.is_visible("#t_speed .lab"), f"{theme} {w}x{h} big mode hides labels")
-            page.evaluate("window.__forceSwap = true"); page.wait_for_timeout(500)          # warm engine: Range takes coolant's place
+            page.evaluate("window.__forceHot = true"); page.wait_for_timeout(500)           # coolant > 105 C: it joins Big mode
             bad = page.evaluate(JS)
-            check(page.is_visible("#t_range") and not page.is_visible("#t_coolant") and not bad, f"{theme} {w}x{h} BIG mode: Range replaces coolant, fits (banner + card on)" + ("" if not bad else ": " + "; ".join(bad)))
-            page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-big-range.png"))
-            page.evaluate("window.__forceSwap = false; window.__forceFill = false")
+            check(page.is_visible("#t_range") and page.is_visible("#t_coolant") and not bad, f"{theme} {w}x{h} BIG mode + hot coolant: fits (banner + card on)" + ("" if not bad else ": " + "; ".join(bad)))
+            page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-big-hot.png"))
+            page.evaluate("window.__forceHot = false; window.__forceFill = false")
             page.click("#btnBig")
             for tab in ("style", "car", "fuel", "log"):
                 page.click(f'nav button[data-p="{tab}"]'); page.wait_for_timeout(150)

@@ -32,6 +32,9 @@ def app(viewport=(412, 915), mock=True, splash=False, theme=None, **ctx):
         finally:
             b.close(); srv.shutdown()
 
+FAILS = []
 def check(cond, msg):
     print(("PASS " if cond else "FAIL ") + msg)
-    if not cond: sys.exit(1)
+    if not cond:
+        if __import__("os").environ.get("KEEP_GOING"): FAILS.append(msg)
+        else: sys.exit(1)

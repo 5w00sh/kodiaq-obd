@@ -84,8 +84,9 @@ with app(viewport=(412, 915)) as page:
     after = page.evaluate("parseFloat(getComputedStyle(document.querySelector('#t_speed .val')).fontSize)")
     check(after > before * 1.15, f"big mode enlarges the numbers ({before:.0f}px -> {after:.0f}px)")
     check(not page.is_visible("#t_speed .lab") and page.is_visible("#t_speed .val"), "labels hidden, numbers shown")
-    check(page.is_visible("#t_lph") and not page.is_visible("#t_rpm"), "big mode shows fuel flow (L/h) instead of RPM")
-    check(page.is_visible("#t_mpgInst") and page.is_visible("#t_coolant"), "big mode keeps instant mpg and coolant")
+    shown = {i: page.is_visible("#" + i) for i in ("t_speed", "t_range", "t_mpgTrip", "t_mpgInst", "t_lph", "t_coolant", "t_rpm", "t_remain", "t_oil", "t_cost", "t_score")}
+    check(all(shown[i] for i in ("t_speed", "t_range", "t_mpgTrip", "t_mpgInst", "t_lph")), "big mode shows speed, range, trip average, instant, fuel flow")
+    check(not any(shown[i] for i in ("t_coolant", "t_rpm", "t_remain", "t_oil", "t_cost", "t_score")), "everything else hidden (coolant only when hot)")
     page.screenshot(path=str(OUT / "big-mode.png"))
     page.reload(); page.wait_for_timeout(300)
     check(page.evaluate("document.getElementById('p_drive').classList.contains('big')"), "big mode persists across reloads")
@@ -97,7 +98,7 @@ with app(viewport=(412, 915)) as page:
 with app(viewport=(412, 915)) as page:
     page.click('nav button[data-p="log"]'); page.wait_for_timeout(400)
     ver = page.inner_text("#verNote")
-    check("v6.0.2" in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")
+    check("v6.0.3" in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")
 
 # ---- Stage 1 polish ----
 with app(viewport=(412, 915)) as page:
