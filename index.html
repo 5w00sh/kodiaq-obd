@@ -129,10 +129,12 @@
   #p_drive.big .lab{display:none}
   #p_drive.big .tile{padding:4px 14px}
   #p_drive.big .val{font-size:clamp(30px,min(76cqh,30cqw),300px)}
-  #p_drive.big .hero .val{font-size:clamp(60px,min(78cqh,31cqw),360px)}
+  #p_drive.big .hero .val{font-size:clamp(60px,min(70cqh,31cqw),360px)}
   #p_drive.big .unit{font-size:.26em}
   #p_drive.big .hero .unit{font-size:.16em}
-  #p_drive.big #t_rpm,#p_drive.big #t_score,#p_drive.big #t_oil,#p_drive.big #t_miles,#p_drive.big #t_cost{display:none}
+  #p_drive.big #t_rpm,#p_drive.big #t_score,#p_drive.big #t_oil,#p_drive.big #t_range,#p_drive.big #t_cost{display:none}
+  #p_drive.big.swap #t_coolant{display:none}
+  #p_drive.big.swap #t_range{display:flex;grid-column:span 2}
   #p_drive.big .drive{grid-template-rows:2fr 2fr 1.2fr 1fr}
   #p_drive.big #t_coolant{grid-column:span 2}
   @media (orientation:landscape){
@@ -160,6 +162,12 @@
   @media (max-width:520px){ h1{display:none} }   /* phones: the status line matters more than the wordmark */
   #regen{flex:none;display:none;margin-bottom:var(--gap);background:var(--warnBg);border:2px solid var(--warn);color:var(--warnTxt);border-radius:var(--r-s);padding:12px 16px;font-weight:600;}
   #regen b{color:var(--txt)}
+  #fillCard{flex:none;display:none;margin-bottom:var(--gap);gap:8px;align-items:center;flex-wrap:wrap;background:var(--card2);border:1px solid var(--acc);border-radius:var(--r-s);padding:10px 12px;font-size:var(--fs-s)}
+  #fillCard.show{display:flex}
+  #fillCard span{flex:1 1 200px;font-weight:600}
+  #fillCard input{flex:1 1 120px;min-width:0;font:inherit;font-size:var(--fs-m);padding:9px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--bg);color:var(--txt)}
+  #fillCard button{padding:9px 14px;min-width:0}
+  @media (orientation:landscape) and (max-height:500px){ #fillCard{padding:4px 10px;margin-bottom:6px;gap:6px} #fillCard input,#fillCard button{padding:4px 10px} #fillCard span{font-size:var(--fs-xs)} }
   #regen.show{display:block}
   @media (max-width:520px){ #regen{font-size:var(--fs-s);padding:9px 12px} }
   @media (orientation:landscape) and (max-height:500px){ #regen{font-size:var(--fs-xs);padding:5px 10px;margin-bottom:6px;line-height:1.3} }
@@ -245,6 +253,7 @@
   <!-- DRIVE -->
   <div class="pane sel" id="p_drive">
     <div id="regen"></div>
+    <div id="fillCard" role="status"><span id="fillTxt"></span><input id="fillLit" type="number" inputmode="decimal" step="0.1" min="1" max="80" placeholder="Litres from receipt?" aria-label="Litres from receipt"><button class="pri" id="fillSave">Save</button><button id="fillSkip">Skip</button></div>
     <div id="emptyHint"><div>Ignition on → Connect · or tap Demo</div></div>
     <div class="drive">
     <button id="btnBig" aria-label="Big mode" aria-pressed="false" title="Big mode: hide labels, maximise numbers"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
@@ -256,7 +265,7 @@
       <div class="tile na" id="t_score"><div class="lab">Eco score</div><div class="val">–<span class="unit">/100</span></div></div>
       <div class="tile na" id="t_coolant"><div class="lab">Coolant</div><div class="val">–<span class="unit">°C</span></div></div>
       <div class="tile na" id="t_oil"><div class="lab">Oil</div><div class="val">–<span class="unit">°C</span></div></div>
-      <div class="tile na" id="t_miles"><div class="lab">Trip</div><div class="val">–<span class="unit">mi</span></div></div>
+      <div class="tile na" id="t_range"><div class="lab">Range</div><div class="val">–<span class="unit">mi</span></div></div>
       <div class="tile na" id="t_cost"><div class="lab">Trip cost</div><div class="val">–</div></div>
     </div>
   </div>
@@ -352,6 +361,12 @@
   <!-- FUEL -->
   <div class="pane" id="p_fuel">
     <div class="cols">
+      <section>
+        <h2>Fuel left &amp; range</h2>
+        <div id="rangeInfo" class="note">Reads the tank sensor once connected.</div>
+        <div class="row" style="margin-top:10px"><button id="btnTank">Tank size: 58 L</button></div>
+        <p class="note">Litres left = fuel level (PID 2F) × tank size, smoothed over ~90 s so it doesn't jump with slosh. Range uses your last ~50 miles of trips (then this trip, then 45 mpg). Amber under 80 miles, red under 40. When the level jumps 10%+ while you're stationary the app logs a fill-up and asks for the receipt litres, which feeds the pump calibration.</p>
+      </section>
       <section>
         <h2>Fill-ups &amp; calibration</h2>
         <div class="row">
@@ -460,6 +475,7 @@ const PIDS = {
   iat:     {pid:'0F', fast:false, f:b=>b[0]-40},
   oil:     {pid:'5C', fast:false, f:b=>b[0]-40},
   amb:     {pid:'46', fast:false, f:b=>b[0]-40},
+  fuel:    {pid:'2F', fast:false, f:b=>b[0]*100/255},   // fuel level % (smoothed in fuelSample)
 };
 const unsupported = new Set(), pidFails = {};
 
@@ -554,6 +570,7 @@ function renderFuel(speedKmh){
   show('mpgInst', inst==null ? null : Math.min(inst, 199));
   show('mpgTrip', mpg(tripKm(), trip.L), 1);
   show('miles', tripKm()/KM_PER_MILE, 1);
+  renderRange(); fillCardTick(); bigSwap();
   show('litres', trip.L, 2);
   const c = $('t_cost'); const v = c.querySelector('.val');
   if (trip.L > 0){ c.classList.remove('na'); const cost = trip.L*price; const ppm = tripKm()>0.1 ? (cost/(tripKm()/KM_PER_MILE))*100 : null;
@@ -566,6 +583,8 @@ function fillInfo(){
   $('fillInfo').innerHTML = 'Since last brim: <b>'+m.toFixed(1)+' mi</b>, OBD fuel '+(sinceFill.L*cal).toFixed(1)+' L'
     + (mpg(sinceFill.km, sinceFill.L*cal) ? ' ≈ <b>'+mpg(sinceFill.km, sinceFill.L*cal).toFixed(1)+' mpg</b>' : '')
     + '<br>Calibration ×'+cal.toFixed(3)+' · Diesel £'+price.toFixed(3)+'/L';
+  const af = store.get('autoFills', []).slice(-1)[0];
+  if (af) $('fillInfo').innerHTML += `<br>Last detected fill: ${af.date.slice(0,10)}, about ${af.estL} L from the gauge${af.receipt ? ', receipt '+af.receipt.toFixed(1)+' L' : ''}.`;
   const h = store.get('fills', []);
   $('history').innerHTML = h.length ? '<div class="note">Fill-ups (real mpg from the pump):</div>' + h.slice(-8).reverse().map(f=>
     `<div class="note">${f.date}: ${f.miles.toFixed(0)} mi, ${f.litres.toFixed(1)} L → <b style="color:var(--txt)">${f.mpg.toFixed(1)} mpg</b>${f.obdMpg?' (OBD said '+f.obdMpg.toFixed(1)+')':''}</div>`).join('') : '';
@@ -578,6 +597,9 @@ function brim(){
   }
   const lit = parseFloat(prompt('Litres added at the pump (brimmed to first click):', ''));
   if (!(lit > 0)) return;
+  recordFill(lit, false);
+}
+function recordFill(lit, quiet){                    // shared by the brim button and the auto-detected fill card
   const miles = sinceFill.km/KM_PER_MILE;
   const real = (miles/(lit/L_PER_GAL));
   const obdL = sinceFill.L;                        // raw OBD litres over same distance
@@ -590,7 +612,7 @@ function brim(){
   const h = store.get('fills', []);
   h.push({date:new Date().toISOString().slice(0,10), miles, litres:lit, mpg:real, obdMpg});
   store.set('fills', h);
-  if (miles < 50) alert('Only '+miles.toFixed(0)+' miles were logged by the app since the last brim. Real mpg recorded, but calibration skipped (drive with the app connected for the whole tank).');
+  if (miles < 50){ const msg = 'Only '+miles.toFixed(0)+' miles were logged by the app since the last brim. Real mpg recorded, but calibration skipped (drive with the app connected for the whole tank).'; if (quiet) log(msg); else alert(msg); }
   sinceFill = {km:0, L:0}; store.set('sinceFill', sinceFill); fillInfo();
 }
 function setPrice(){
@@ -603,7 +625,7 @@ function saveTrip(){
   const m = styleMetrics();
   h.push({date:new Date(trip.t0).toISOString(), miles:tripKm()/KM_PER_MILE, litres:trip.L, mpg:mpg(tripKm(),trip.L), idleL:st.idleL,
           coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
-  store.set('trips', h.slice(-300)); store.set('sinceFill', sinceFill); store.set('bands', bands);
+  tripsCache = h.slice(-300); store.set('trips', tripsCache); store.set('sinceFill', sinceFill); store.set('bands', bands);
   renderLearned();
 }
 
@@ -625,6 +647,7 @@ function styleUpdate(dtH){
   const h0 = st.hist[0];
   if (h0 && now - h0[0] >= 900){
     const a = ((v - h0[1])/3.6) / ((now - h0[0])/1000);  // m/s²
+    if (Math.abs(a) > 2) fuelFreezeUntil = now + 6000;     // slosh guard (cornering joins in Stage 3 with the motion sensors)
     if (now - st.lastEvt > 3000){
       if (a > 2.5){ st.hacc++; st.lastEvt = now; }
       else if (a < -3.0){ st.hbrk++; st.lastEvt = now; }
@@ -876,6 +899,7 @@ async function loop(){
           if (!p.fast && tick%5) continue;
           const v = await readPid(name); latest[name]=v; show(name,v);
         }
+        if (tick%5===0) fuelSample(latest.fuel);
         if (fuelMethod){ curLph = await readFuelLph(); }
         const dtH = integrate(latest.speed, curLph); styleUpdate(dtH);
         if (tick%8===0 && (supportedPids.has('8B') || supportedPids.has('78'))) await readDpf();
@@ -899,7 +923,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.0.1';
+const APP_VERSION = '6.0.2';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>b[0]-40], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1184,7 +1208,7 @@ async function connect(){
     setStatus('Choose the adapter…','busy');
     port = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds:[SPP], filters:[{bluetoothServiceClassId:SPP}] });
     for (let i=1;;i++){ try{ await port.open({ baudRate: 38400 }); break; } catch(e){ if (i>=3){ openFailed = true; throw e; } log('Open attempt '+i+' failed, retrying… (press the iCar2 button if its light is off)'); setStatus('Waking adapter… press its button','busy'); await new Promise(r=>setTimeout(r,2000)); } }
-    writer = port.writable.getWriter(); reader = port.readable.getReader(); buf='';
+    writer = port.writable.getWriter(); reader = port.readable.getReader(); buf=''; fuelReset();
     await initElm();
     await detectSupport();
     tripOpen = false; offSince = null;
@@ -1216,22 +1240,23 @@ async function stop(msg){
 }
 
 // ---------- demo ----------
-let ds = 0;
+let ds = 0, demoN = 0;
 function demoStep(){
   ds += 0.25;
   const sp = Math.max(0, 60 + 40*Math.sin(ds/8));
   latest = { oil:Math.min(98, 35+ds*1.5), speed:sp, rpm:800+sp*28+Math.random()*60, throttle:15+12*Math.sin(ds/3)+5, load:30+20*Math.sin(ds/4)+20,
-             coolant:Math.min(92, 40+ds*2), iat:18+Math.random(), volt:14.1+Math.random()*0.1, amb:6 };
+             coolant:Math.min(92, 40+ds*2), iat:18+Math.random(), volt:14.1+Math.random()*0.1, amb:6, fuel:Math.max(8, 62-ds*0.03) };
+  if ((demoN = (demoN||0)+1) % 4 === 0) fuelSample(latest.fuel);
   const regenOn = ds > 12 && ds < 30; dpf.flag8B = regenOn; dpf.trigger = regenOn ? 100 : 62; dpf.egt = regenOn ? 610 : 280;
   for (const [k,v] of Object.entries(latest)) show(k,v);
   curLph = 0.6 + sp*0.055 + Math.max(0,latest.throttle-15)*0.15; const dtH = integrate(sp, curLph); styleUpdate(dtH); dpfUpdate(dtH); renderFuel(sp); renderStyle(); renderDpf(); renderVsExpected();
 }
 let _sfBackup=null, _bandsBackup=null, _regBackup=null, _ibBackup=null;
-function startDemo(){ showAsleep(false); ds = 0; tripOpen = false; _regBackup = [...regens]; _ibBackup = {...idleBase}; _sfBackup = {...sinceFill}; _bandsBackup = JSON.parse(JSON.stringify(bands)); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
+function startDemo(){ showAsleep(false); ds = 0; fuelReset(); fuelWin = [0,1,2].map(()=>[performance.now(), 62]); fuelMed = 62; tripOpen = false; _regBackup = [...regens]; _ibBackup = {...idleBase}; _sfBackup = {...sinceFill}; _bandsBackup = JSON.parse(JSON.stringify(bands)); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
 
 // ---------- CSV ----------
 function csv(){
-  const cols = ['t','speed','rpm','throttle','load','coolant','oil','iat','amb','volt','lph','mpgTrip','egt','dpfTrig','regen'];
+  const cols = ['t','speed','rpm','throttle','load','coolant','oil','iat','amb','volt','lph','mpgTrip','egt','dpfTrig','regen','fuel'];
   const rows = [cols.join(',')].concat(samples.map(s=>cols.map(c=>s[c]==null?'':(typeof s[c]==='number'?s[c].toFixed(2):s[c])).join(',')));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
@@ -1252,6 +1277,115 @@ fillInfo(); trainModel(); renderLearned(); renderDpf(); renderVsExpected(); rend
 window.addEventListener('pagehide', ()=>{ store.set('sinceFill', sinceFill); store.set('bands', bands); });
 if ('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
 document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && running) keepAwake(); });
+
+// =====================================================================
+// FUEL LEFT, RANGE & AUTO FILL-UP DETECTION (v6.0.2)
+// PID 2F (fuel level %) x tank size = litres left. The raw reading wobbles with slosh, so it is a rolling median
+// over ~90 s that ignores samples taken during hard accelerating/braking.
+// =====================================================================
+let tank = store.get('tank', 58);                           // litres: Kodiaq Mk1 facelift 2.0 TDI 4x4 DSG = 58
+let FUEL_WIN_MS = 90000, fuelWin = [], fuelMed = null, fuelChecked = false, fuelHist = [], fuelFreezeUntil = 0, fuelSaveAt = 0, stillSince = null, swapRange = false;
+let fuelBase = (store.get('fuelLast', null) || {}).pct ?? null;   // last level seen on a previous drive
+let tripsCache = store.get('trips', []), rangeAt = 0, rangeShown = false;
+const median = a => { const s = [...a].sort((x,y)=>x-y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m-1]+s[m])/2; };
+const fuelUnsupported = ()=> unsupported.has('fuel') || (supportedPids.size > 0 && !supportedPids.has('2F'));
+function fuelReset(){ fuelWin = []; fuelMed = null; fuelChecked = false; fuelHist = []; }
+
+function fuelSample(pct){
+  if (pct==null || !isFinite(pct) || pct < 0 || pct > 100) return;
+  const now = performance.now(); if (now < fuelFreezeUntil) return;                // hard accel/brake: the tank sloshes, skip
+  fuelWin.push([now, pct]); while (fuelWin.length && now - fuelWin[0][0] > FUEL_WIN_MS) fuelWin.shift();
+  if (fuelWin.length < 3) return;
+  const med = median(fuelWin.map(x=>x[1])); fuelMed = med;
+  if (demo) return;                                                                 // demo never touches saved fuel data
+  if (!fuelChecked){ fuelChecked = true; if (fuelBase!=null && med - fuelBase >= 10) fuelRefuelled(fuelBase, med); }   // engine off -> on
+  else {
+    const t = Date.now(); if (!fuelHist.length || t - fuelHist[fuelHist.length-1][0] >= 5000) fuelHist.push([t, med]);
+    fuelHist = fuelHist.filter(h=>t - h[0] < 600000);
+    const lo = Math.min(...fuelHist.map(h=>h[1]));                                  // a jump of 10 points over the last 10 min = a fill, however fast it was pumped
+    if (med - lo >= 10){ fuelRefuelled(lo, med); fuelHist = [[t, med]]; }
+  }
+  if (Date.now() - fuelSaveAt > 30000){ fuelSaveAt = Date.now(); fuelBase = med; store.set('fuelLast', {pct:med, t:Date.now()}); }
+}
+function fuelRefuelled(a, b){
+  const estL = (b-a)/100*tank, e = {date:new Date().toISOString(), before:Math.round(a), after:Math.round(b), estL:Math.round(estL*10)/10, receipt:null};
+  const list = store.get('autoFills', []); list.push(e); store.set('autoFills', list.slice(-30));
+  store.set('fillPending', e); fuelBase = b; store.set('fuelLast', {pct:b, t:Date.now()});
+  log(`Fill-up detected: about ${estL.toFixed(0)} L added (gauge ${a.toFixed(0)}% → ${b.toFixed(0)}%)`); fillInfo();
+}
+
+// ---- range ----
+function consumption(){                                                             // litres per mile
+  const cur = [];
+  if ((tripOpen || demo) && tripKm()/KM_PER_MILE >= 1 && trip.L > 0) cur.push([tripKm()/KM_PER_MILE, trip.L]);
+  const saved = tripsCache.filter(t=>t.miles >= 0.5 && t.litres > 0).map(t=>[t.miles, t.litres]).reverse();
+  let mi = 0, L = 0, sm = 0;
+  for (const [m,l,isSaved] of [...cur.map(x=>[...x,false]), ...saved.map(x=>[...x,true])]){      // newest ~50 miles, this trip first
+    const take = Math.min(m, 50-mi); L += l*take/m; mi += take; if (isSaved) sm += take; if (mi >= 50) break; }
+  const allM = saved.reduce((a,x)=>a+x[0],0), allL = saved.reduce((a,x)=>a+x[1],0), all = allM >= 5 ? allL/allM : null;
+  if (sm >= 5) return {lpm:L/mi, basis:'last '+Math.round(mi)+' mi', all};
+  if (cur.length) return {lpm:cur[0][1]/cur[0][0], basis:'this trip', all};
+  return {lpm:L_PER_GAL/45, basis:'45 mpg assumed', all};
+}
+function rangeInfo(){
+  if (fuelMed==null) return null;
+  const left = fuelMed*tank/100, c = consumption(), fillL = Math.max(0, tank-left);
+  return {pct:fuelMed, left, lpm:c.lpm, basis:c.basis, miles:left/c.lpm, allMiles:c.all ? left/c.all : null, mpg:L_PER_GAL/c.lpm, fillL, cost:fillL*price};
+}
+function renderRange(){
+  const t = $('t_range'), v = t.querySelector('.val'), r = rangeInfo();
+  t.classList.remove('hot','crit');
+  if (!r){ t.classList.add('na'); v.innerHTML = '–<span class="unit">'+(fuelUnsupported() ? 'no fuel level' : 'reading…')+'</span>'; }
+  else { t.classList.remove('na'); v.innerHTML = Math.round(r.miles)+'<span class="unit">mi · '+Math.round(r.left)+' L</span>';
+    if (r.miles < 40) t.classList.add('crit'); else if (r.miles < 80) t.classList.add('hot'); }      // amber < 80 mi, red < 40 mi
+  const now = Date.now(); if (r && rangeShown && now - rangeAt < 2000) return; rangeAt = now; rangeShown = !!r;     // Fuel tab text: first value at once, then every 2 s
+  $('btnTank').textContent = 'Tank size: '+tank+' L';
+  const el = $('rangeInfo'), last = store.get('fuelLast', null);
+  if (!r){ el.innerHTML = fuelUnsupported() ? 'This car does not report a fuel level.' : (last ? `Last seen: <b style="color:var(--txt)">${last.pct.toFixed(0)}% (${(last.pct*tank/100).toFixed(0)} L)</b>, ${ago(last.t)}. Live reading starts a few seconds after you connect.` : 'Reads the tank sensor once connected.'); return; }
+  el.innerHTML = `<div>Fuel left: <b style="color:var(--txt)">${r.left.toFixed(1)} L (${r.pct.toFixed(0)}%)</b></div>`
+    + `<div>Range: <b style="color:${r.miles<40?'var(--bad)':r.miles<80?'var(--warn)':'var(--txt)'}">${Math.round(r.miles)} mi</b> at your ${r.basis} rate (${r.mpg.toFixed(1)} mpg)</div>`
+    + (r.allMiles!=null ? `<div>At your all-time average: <b style="color:var(--txt)">${Math.round(r.allMiles)} mi</b></div>` : '')
+    + `<div>To fill the tank: ${r.fillL.toFixed(0)} L ≈ <b style="color:var(--txt)">£${r.cost.toFixed(2)}</b> at £${price.toFixed(3)}/L</div>`;
+}
+function ago(t){ const m = Math.round((Date.now()-t)/60000); return m < 2 ? 'just now' : m < 120 ? m+' min ago' : m < 2880 ? Math.round(m/60)+' h ago' : Math.round(m/1440)+' days ago'; }
+function setTank(){
+  const v = parseFloat(prompt('Fuel tank size in litres (50–70). Kodiaq Mk1 facelift 2.0 TDI 4x4 DSG: 58', tank));
+  if (v >= 50 && v <= 70){ tank = Math.round(v*2)/2; store.set('tank', tank); rangeAt = 0; renderRange(); } else if (!isNaN(v)) setStatusHint('Tank size must be 50–70 L');
+}
+// Big mode: range takes coolant's place once the engine is warm; coolant comes back while warming up or if it runs hot
+function bigSwap(){
+  const c = latest.coolant; let s = swapRange;
+  if (window.__forceSwap != null) s = !!window.__forceSwap;                         // test hook
+  else { if (c==null) s = false; else if (!s && c > 75 && c < 104) s = true; else if (s && (c <= 73 || c >= 102)) s = false; if (s && !rangeInfo()) s = false; }
+  swapRange = s; $('p_drive').classList.toggle('swap', s);
+}
+
+// ---- fill-up prompt: a card in the Drive tab, shown only while stationary, never blocks anything ----
+function fillCardTick(){
+  const card = $('fillCard'), p = store.get('fillPending', null), now = performance.now(), v = latest.speed || 0;
+  if (v >= 2) stillSince = null; else if (stillSince==null) stillSince = now;
+  const forced = window.__forceFill, still = stillSince!=null && now - stillSince > 8000, show = !!forced || (!!p && !demo && running && still);   // never while moving
+  if (show === card.classList.contains('show')) return;
+  card.classList.toggle('show', show);
+  if (show){ $('fillTxt').textContent = p ? `Fill-up spotted: about ${Math.round(p.estL)} L added (gauge ${p.before}% → ${p.after}%).` : 'Fill-up spotted: about 30 L added (gauge 40% → 92%).'; $('fillLit').value = ''; }
+}
+function fillSave(){
+  const lit = parseFloat($('fillLit').value), p = store.get('fillPending', null);
+  if (!(lit >= 1 && lit <= tank + 10)){ $('fillLit').focus(); return; }
+  if (p){
+    const list = store.get('autoFills', []), e = list.find(x=>x.date===p.date); if (e){ e.receipt = lit; store.set('autoFills', list); }
+    if (p.after >= 92){                                                              // near full: treat like a brim and feed the pump calibration
+      if (!store.get('fillStarted', false)){ sinceFill = {km:0, L:0}; store.set('sinceFill', sinceFill); store.set('fillStarted', true); }
+      else recordFill(lit, true);
+    }
+    store.set('fillPending', null);
+  }
+  $('fillCard').classList.remove('show'); fillInfo(); setStatusHint('Fill saved: '+lit.toFixed(1)+' L');
+}
+$('fillSave').onclick = fillSave;
+$('fillLit').onkeydown = e=>{ if (e.key==='Enter') fillSave(); };
+$('fillSkip').onclick = ()=>{ store.set('fillPending', null); $('fillCard').classList.remove('show'); };
+$('btnTank').onclick = setTank;
 
 // ---------- theme toggle + big mode ----------
 $('btnTheme').onclick = ()=>{ const m = kobdTheme.cycle(); setStatusHint('Theme: '+m); };

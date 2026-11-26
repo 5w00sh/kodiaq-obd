@@ -26,12 +26,17 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - Auto theme reads the cached position `kobd_loc` ({lat,lon,t}); the theme code never prompts for location. Stage 2's GPS should keep `kobd_loc` fresh.
 - Tests seed `kobd_splashDay` so the splash doesn't cover buttons (`app(splash=True)` to test it).
 
+## Fuel & range (v6.0.2)
+- Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range uses the newest ~50 miles of saved trips (then this trip, then 45 mpg).
+- Auto fill-up: level +10 points (vs last session, or vs the lowest of the last 10 min) -> `kobd_fillPending`; the Drive card appears only after 8 s stationary. A fill to >= 92 % with a receipt feeds `recordFill()` (pump calibration); smaller top-ups are only logged. Demo never writes fuel data.
+
 ## Workflow (per stage)
 Run `tests/run.sh` (all tests), show screenshots from `tests/out/`, bump `APP_VERSION` (index.html) AND the
 `C` cache name in `sw.js`, commit, then WAIT for the user's OK before pushing or starting the next stage.
 Never push without OK. Everything stays on-device: no logos/images from the web, GPS routes never leave the phone.
 
 ## Tests (python3 + playwright, headless Chromium; `tests/out/` is gitignored)
+- Mock fuel/coolant controls: `__mock.fuelPct`, `fuelBurn` (%/min), `fuelSpike` (+/- % glitches), `coolantC`. Test hooks in the app: `window.__forceSwap`, `window.__forceFill` (layout tests only), `FUEL_WIN_MS` (shrink the 90 s median window).
 - `tests/mock-adapter.js`: fake `navigator.serial` ELM327 (diesel Kodiaq PIDs); `window.__mock.asleep = true` simulates a sleeping iCar2. Extend it for mock GPS/motion.
 - Mock controls: `__mock.engine` (on/off), `__mock.cruise` (km/h), `__mock.asleep`, `__mock.mode03` (override mode-03 reply lines). It answers the real two-ECU replies and the real PID list.
 - `tests/test_demo.py`: Demo mode, every tab, no JS errors.
@@ -39,6 +44,7 @@ Never push without OK. Everything stays on-device: no logos/images from the web,
 - `tests/test_layouts.py`: demo at 412x915, 915x412, 800x1280, 1280x800; fails on Drive overflow, clipped tiles, JS errors.
 - `tests/test_dtc.py`: two-ECU fault-code regression (no fake C0300/C0700).
 - `tests/test_theme_splash.py`: splash (text, once/day, tap skip, reduced motion), auto/day/night themes (sunrise/sunset from a permitted fix, scheme fallback, toggle, contrast), Big mode.
+- `tests/test_fuel.py`: fuel left (PID 2F x tank), range (last ~50 mi / this trip / 45 mpg, all-time), low-fuel colours, smoothing, Big-mode coolant/range swap, auto fill-up detection + receipt prompt + calibration.
 - `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ -> on; pre-start battery, auto health scan, trip saved, new trip. ~1.5 min (real timers).
 - `tests/run.sh` runs all; `FAST=1 tests/run.sh` skips the engine cycle.
 - The mock honours ATS0 (no spaces in replies); the app depends on that.

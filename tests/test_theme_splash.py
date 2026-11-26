@@ -97,7 +97,7 @@ with app(viewport=(412, 915)) as page:
 with app(viewport=(412, 915)) as page:
     page.click('nav button[data-p="log"]'); page.wait_for_timeout(400)
     ver = page.inner_text("#verNote")
-    check("v6.0.1" in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")
+    check("v6.0.2" in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")
 
 # ---- Stage 1 polish ----
 with app(viewport=(412, 915)) as page:

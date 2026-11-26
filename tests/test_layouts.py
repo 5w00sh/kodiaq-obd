@@ -1,12 +1,18 @@
 """Test 3: layouts. Demo mode at four viewports; fail on Drive-tab overflow, clipped tiles or JS errors."""
 from common import app, check, OUT
 
-VIEWPORTS = [(412, 915), (915, 412), (800, 1280), (1280, 800)]
+VIEWPORTS = [(412, 915), (915, 412), (800, 1280), (1280, 800), (360, 760), (760, 360)]   # last two: Galaxy S10
 JS = """() => {
   const bad = [], pane = document.getElementById('p_drive'), de = document.scrollingElement;
   if (pane.scrollHeight > pane.clientHeight + 1) bad.push(`Drive pane scrolls (${pane.scrollHeight}>${pane.clientHeight})`);
   if (pane.scrollWidth > pane.clientWidth + 1) bad.push('Drive pane scrolls sideways');
   if (de.scrollHeight > innerHeight + 1 || de.scrollWidth > innerWidth + 1) bad.push('page itself scrolls');
+  const fc = document.getElementById('fillCard');
+  if (getComputedStyle(fc).display !== 'none') {
+    const fr = fc.getBoundingClientRect();
+    if (fr.bottom > pane.querySelector('.drive').getBoundingClientRect().top + 1) bad.push('fill-up card overlaps the tile grid');
+    for (const e of fc.querySelectorAll('span,input,button')) { const r = e.getBoundingClientRect(); if (r.right > fr.right + 1 || r.bottom > fr.bottom + 1 || r.width < 20) bad.push('fill-up card: ' + e.id + ' clipped'); }
+  }
   const rg = document.getElementById('regen'), rr = rg.getBoundingClientRect(), regOn = getComputedStyle(rg).display !== 'none';
   const dr = pane.querySelector('.drive').getBoundingClientRect();
   if (regOn && rr.bottom > dr.top + 1) bad.push('regen banner overlaps the tile grid');
@@ -33,6 +39,11 @@ for theme in ("night", "day"):
             page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}.png"))
             bad = page.evaluate(JS)
             check(not bad, f"{theme} {w}x{h} Drive tab fits, no clipped tiles" + ("" if not bad else ": " + "; ".join(bad)))
+            check(page.is_visible("#t_range") and page.inner_text("#t_range .val").split()[0].isdigit(), f"{theme} {w}x{h} Range tile shows miles ({' '.join(page.inner_text('#t_range .val').split())})")
+            page.evaluate("window.__forceFill = true"); page.wait_for_timeout(300)       # the fill-up prompt card, on top of everything else
+            bad = page.evaluate(JS)
+            check(not bad and page.is_visible("#fillCard"), f"{theme} {w}x{h} fill-up card: grid shrinks, nothing clipped" + ("" if not bad else ": " + "; ".join(bad)))
+            page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-fillcard.png"))
             page.evaluate("ds = 13"); page.wait_for_timeout(900)      # demo DPF regen window -> banner on
             check(page.is_visible("#regen"), f"{theme} {w}x{h} regen banner showing")
             page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-regen.png"))
@@ -43,6 +54,11 @@ for theme in ("night", "day"):
             bad = page.evaluate(JS)
             check(page.is_visible("#regen") and not bad, f"{theme} {w}x{h} BIG mode + regen banner fits, no clipped tiles" + ("" if not bad else ": " + "; ".join(bad)))
             check(not page.is_visible("#t_speed .lab"), f"{theme} {w}x{h} big mode hides labels")
+            page.evaluate("window.__forceSwap = true"); page.wait_for_timeout(500)          # warm engine: Range takes coolant's place
+            bad = page.evaluate(JS)
+            check(page.is_visible("#t_range") and not page.is_visible("#t_coolant") and not bad, f"{theme} {w}x{h} BIG mode: Range replaces coolant, fits (banner + card on)" + ("" if not bad else ": " + "; ".join(bad)))
+            page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-big-range.png"))
+            page.evaluate("window.__forceSwap = false; window.__forceFill = false")
             page.click("#btnBig")
             for tab in ("style", "car", "fuel", "log"):
                 page.click(f'nav button[data-p="{tab}"]'); page.wait_for_timeout(150)

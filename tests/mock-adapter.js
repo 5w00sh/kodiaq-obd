@@ -8,6 +8,10 @@
     engine: true,           // false -> rpm 0, speed 0, no fuel flow; battery reads the ignition-on/engine-off value
     hasRun: false,          // set when the engine has been on (drives the 11.0 V after-engine-off reading)
     cruise: null,           // number -> constant speed (km/h) while the engine is on; null -> sinusoid 20..90
+    fuelPct: 70,            // PID 2F tank level in %. Tests set this directly (a refuel = a jump)
+    fuelBurn: 0,            // % lost per minute while the engine runs (slow drift down)
+    fuelSpike: 0,           // every 4th read adds +/- this many % (slosh / glitch) to test the smoothing
+    coolantC: 90,           // PID 05
     mode03: null,           // array of reply lines to override the default "4300" x2 (no codes)
     restVolt: 12.4,         // ATRV before the engine has ever run (ignition on, rested battery)
     openAttempts: 0,
@@ -43,7 +47,7 @@
       if (!SUP.includes(pid)) return ['NO DATA'];
       switch (pid) {
         case 0x04: return [head + hexb(mock.engine ? 90 : 0)];
-        case 0x05: return [head + hexb(90 + 40)];
+        case 0x05: return [head + hexb(mock.coolantC + 40)];
         case 0x0C: return [head + hexb((rpm * 4) >> 8, (rpm * 4) & 255)];
         case 0x0D: return [head + hexb(sp)];
         case 0x0F: return [head + hexb(20 + 40)];
@@ -56,7 +60,9 @@
         case 0x42: { const v = Math.round(mock.volt() * 1000); return [head + hexb(v >> 8, v & 255)]; }
         case 0x51: return [head + hexb(4)];
         case 0x1C: return [head + hexb(6)];
-        case 0x2F: return [head + hexb(128)];
+        case 0x2F: { mock._f = (mock._f || 0) + 1; const t = (Date.now() - mock.t0) / 60000, drift = mock.engine ? mock.fuelBurn * t : 0;
+          const spike = mock.fuelSpike && mock._f % 4 === 0 ? (mock._f % 8 === 0 ? 1 : -1) * mock.fuelSpike : 0;
+          return [head + hexb(Math.max(0, Math.min(255, Math.round((mock.fuelPct - drift + spike) * 255 / 100))))]; }
         case 0x33: return [head + hexb(100)];
         default: return [head + hexb(...rawBytes(pid === 0x01 ? 4 : 2))];
       }
