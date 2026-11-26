@@ -8,35 +8,60 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg">
 <style>
-  :root{--bg:#0b0f14;--card:#141b23;--line:#223040;--txt:#e8eef4;--mut:#8a9bab;--acc:#4fb3ff;--ok:#3ecf8e;--warn:#ffb020;--bad:#ff5c5c}
+  :root{--bg:#0b0f14;--card:#141b23;--line:#223040;--txt:#e8eef4;--mut:#8a9bab;--acc:#4fb3ff;--ok:#3ecf8e;--warn:#ffb020;--bad:#ff5c5c;--hdr:56px;--nav:60px;--gap:8px}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:max(12px,env(safe-area-inset-top)) 12px 24px}
-  header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-  h1{font-size:18px;margin:0;flex:1}
-  .dot{width:10px;height:10px;border-radius:50%;background:var(--bad)}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
+  /* header */
+  header{position:fixed;inset:0 0 auto 0;height:calc(var(--hdr) + env(safe-area-inset-top));padding:env(safe-area-inset-top) 12px 0;display:flex;align-items:center;gap:10px;background:var(--bg);border-bottom:1px solid var(--line);z-index:5}
+  h1{font-size:17px;margin:0;white-space:nowrap}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--bad);flex:none}
   .dot.on{background:var(--ok)} .dot.busy{background:var(--warn)}
-  #status{color:var(--mut);font-size:13px}
-  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-  button{flex:1;min-width:90px;background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:12px 10px;font-size:15px;font-weight:600}
+  #status{color:var(--mut);font-size:13px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  header button{flex:none;min-width:0;padding:9px 14px}
+  header button:disabled{display:none}
+  /* bottom tabs */
+  nav{position:fixed;inset:auto 0 0 0;height:calc(var(--nav) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);display:flex;background:var(--bg);border-top:1px solid var(--line);z-index:5}
+  nav button{flex:1;border:0;border-radius:0;background:none;color:var(--mut);font-size:13px;font-weight:600;padding:0;min-width:0}
+  nav button.sel{color:var(--acc);box-shadow:inset 0 3px 0 var(--acc)}
+  main{position:fixed;left:0;right:0;top:calc(var(--hdr) + env(safe-area-inset-top));bottom:calc(var(--nav) + env(safe-area-inset-bottom));overflow:hidden}
+  .pane{position:absolute;inset:0;padding:var(--gap) max(var(--gap),env(safe-area-inset-left)) var(--gap) max(var(--gap),env(safe-area-inset-right));overflow-y:auto;display:none}
+  .pane.sel{display:block}
+  #p_drive{overflow:hidden}
+  button{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:12px 10px;font-size:15px;font-weight:600;min-width:90px}
   button.pri{background:var(--acc);color:#001523;border-color:var(--acc)}
   button.danger{border-color:var(--bad);color:var(--bad)}
   button:disabled{opacity:.4}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
-  .tile.big{grid-column:span 2}
-  .lab{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
-  .val{font-size:34px;font-weight:700;font-variant-numeric:tabular-nums}
-  .big .val{font-size:64px;line-height:1.05}
-  .unit{font-size:14px;color:var(--mut);margin-left:4px;font-weight:500}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px} .row button{flex:1}
+  /* tiles scale their numbers to whatever size the tile gets */
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;container-type:size;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .lab{color:var(--mut);font-size:clamp(10px,9cqh,14px);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .val{flex:1;display:flex;align-items:center;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1;font-size:clamp(18px,min(46cqh,22cqw),140px)}
+  .unit{font-size:.36em;color:var(--mut);margin-left:6px;font-weight:500;align-self:center}
   .na .val{color:#3a4a5a}
   .hot .val{color:var(--warn)} .crit .val{color:var(--bad)}
-  section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
-  section h2{font-size:14px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
-  #dtcs div{padding:6px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
-  #dtcs div:last-child{border:0}
-  pre{margin:0;max-height:180px;overflow:auto;font-size:11px;color:var(--mut);white-space:pre-wrap}
-  .note{color:var(--mut);font-size:12px}
-  .warnbox{background:#2a1d05;border:1px solid var(--warn);color:#ffd27a;border-radius:10px;padding:10px;font-size:13px;margin-bottom:12px;display:none}
+  /* drive screen: fills the space, never scrolls */
+  .drive{height:100%;display:grid;gap:var(--gap);grid-template-columns:repeat(2,1fr);grid-template-rows:1.5fr 1.5fr repeat(4,1fr)}
+  .drive .hero{grid-column:span 2}
+  .drive .hero .val{font-size:clamp(40px,min(62cqh,30cqw),220px)}
+  @media (orientation:landscape){
+    .drive{grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr)}
+    .drive .hero{grid-column:span 2;grid-row:span 2}
+  }
+  /* other screens: fixed-height tile grids that reflow by width */
+  .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(150px,1fr));grid-auto-rows:96px;margin-bottom:10px}
+  .grid .wide{grid-column:1/-1}
+  .cols{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));align-items:start}
+  section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+  section .tile{background:var(--bg)}
+  h2{font-size:13px;margin:0 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+  #dtcs div,#insights div,#bands div,#trips div,#history div{padding:5px 0;border-bottom:1px solid var(--line)}
+  #dtcs div:last-child,#bands div:last-child,#trips div:last-child{border:0}
+  pre{margin:0;max-height:50vh;overflow:auto;font-size:11px;color:var(--mut);white-space:pre-wrap}
+  .note{color:var(--mut);font-size:13px}
+  .warnbox{background:#2a1d05;border:1px solid var(--warn);color:#ffd27a;border-radius:10px;padding:10px;font-size:13px;margin-bottom:10px;display:none}
+  @media (min-width:700px){ body{font-size:16px} h1{font-size:20px} .note{font-size:14px} :root{--gap:12px;--hdr:64px;--nav:64px} nav button{font-size:15px} }
+  @media (orientation:landscape) and (max-height:500px){ :root{--hdr:44px;--nav:42px;--gap:6px} h1{font-size:16px} nav button{font-size:13px} header button{padding:6px 12px} .tile{padding:5px 10px} }
 </style>
 </head>
 <body>
@@ -44,74 +69,130 @@
   <span class="dot" id="dot"></span>
   <h1>Kodiaq OBD</h1>
   <span id="status">Not connected</span>
-</header>
-
-<div class="warnbox" id="nosupport">
-  This browser can't reach Bluetooth serial devices. Open this page in <b>Chrome on your Pixel</b>, served over <b>https://</b> (not inside another app or an embedded preview). Demo mode still works.
-</div>
-
-<div class="row">
   <button class="pri" id="btnConnect">Connect</button>
   <button id="btnDemo">Demo</button>
   <button id="btnStop" disabled>Stop</button>
-</div>
+</header>
 
-<div class="grid">
-  <div class="tile big na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div></div>
-  <div class="tile na" id="t_rpm"><div class="lab">RPM</div><div class="val">–</div></div>
-  <div class="tile na" id="t_coolant"><div class="lab">Coolant</div><div class="val">–<span class="unit">°C</span></div></div>
-  <div class="tile na" id="t_load"><div class="lab">Engine load</div><div class="val">–<span class="unit">%</span></div></div>
-  <div class="tile na" id="t_throttle"><div class="lab">Throttle</div><div class="val">–<span class="unit">%</span></div></div>
-  <div class="tile na" id="t_iat"><div class="lab">Intake air</div><div class="val">–<span class="unit">°C</span></div></div>
-  <div class="tile na" id="t_volt"><div class="lab">Battery</div><div class="val">–<span class="unit">V</span></div></div>
-</div>
-
-<section>
-  <h2>Fuel economy (UK mpg)</h2>
-  <div class="grid" style="margin:0">
-    <div class="tile big na" id="t_mpgTrip"><div class="lab">Trip average</div><div class="val">–<span class="unit">mpg</span></div></div>
-    <div class="tile na" id="t_mpgInst"><div class="lab">Instant</div><div class="val">–<span class="unit">mpg</span></div></div>
-    <div class="tile na" id="t_lph"><div class="lab">Fuel flow</div><div class="val">–<span class="unit">L/h</span></div></div>
-    <div class="tile na" id="t_miles"><div class="lab">Trip miles</div><div class="val">–<span class="unit">mi</span></div></div>
-    <div class="tile na" id="t_litres"><div class="lab">Trip fuel</div><div class="val">–<span class="unit">L</span></div></div>
-    <div class="tile na" id="t_cost" style="grid-column:span 2"><div class="lab">Trip cost · per mile</div><div class="val">–</div></div>
+<main>
+  <!-- DRIVE -->
+  <div class="pane sel" id="p_drive">
+    <div class="drive">
+      <div class="tile hero na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div></div>
+      <div class="tile hero na" id="t_mpgTrip"><div class="lab">Trip average</div><div class="val">–<span class="unit">mpg</span></div></div>
+      <div class="tile na" id="t_mpgInst"><div class="lab">Instant</div><div class="val">–<span class="unit">mpg</span></div></div>
+      <div class="tile na" id="t_lph"><div class="lab">Fuel flow</div><div class="val">–<span class="unit">L/h</span></div></div>
+      <div class="tile na" id="t_rpm"><div class="lab">RPM</div><div class="val">–</div></div>
+      <div class="tile na" id="t_score"><div class="lab">Eco score</div><div class="val">–<span class="unit">/100</span></div></div>
+      <div class="tile na" id="t_coolant"><div class="lab">Coolant</div><div class="val">–<span class="unit">°C</span></div></div>
+      <div class="tile na" id="t_oil"><div class="lab">Oil</div><div class="val">–<span class="unit">°C</span></div></div>
+      <div class="tile na" id="t_miles"><div class="lab">Trip</div><div class="val">–<span class="unit">mi</span></div></div>
+      <div class="tile na" id="t_cost"><div class="lab">Trip cost</div><div class="val">–</div></div>
+    </div>
   </div>
-  <p class="note" id="fuelMethod">Fuel source: detected on connect.</p>
-</section>
 
-<section>
-  <h2>Fill-ups &amp; calibration</h2>
-  <div class="row">
-    <button id="btnFill">I just brimmed the tank</button>
-    <button id="btnPrice">Diesel price</button>
+  <!-- STYLE -->
+  <div class="pane" id="p_style">
+    <div class="cols">
+      <section>
+        <h2>This trip</h2>
+        <div class="grid">
+          <div class="tile na" id="t_hacc"><div class="lab">Harsh accel</div><div class="val">–</div></div>
+          <div class="tile na" id="t_hbrk"><div class="lab">Harsh braking</div><div class="val">–</div></div>
+          <div class="tile na" id="t_idle"><div class="lab">Idling</div><div class="val">–<span class="unit">%</span></div></div>
+          <div class="tile na" id="t_hirpm"><div class="lab">Over 2,500 rpm</div><div class="val">–<span class="unit">%</span></div></div>
+          <div class="tile na wide" id="t_coast"><div class="lab">Coasting on fuel cut</div><div class="val">–<span class="unit">% of moving time</span></div></div>
+        </div>
+        <p class="note">Eco score starts at 100, loses points for harsh accelerating/braking, idling and high revs, gains a little for coasting off the throttle (the TDI uses ~zero fuel then).</p>
+      </section>
+      <section>
+        <h2>What it has learned about you</h2>
+        <div id="insights" class="note">Needs a few trips first.</div>
+      </section>
+      <section>
+        <h2>Your mpg by speed</h2>
+        <div id="bands" class="note">Builds up as you drive.</div>
+      </section>
+      <section>
+        <h2>Recent trips</h2>
+        <div id="trips" class="note">None yet.</div>
+      </section>
+    </div>
   </div>
-  <div class="note" id="fillInfo"></div>
-  <div id="history" style="margin-top:8px"></div>
-</section>
 
-<section>
-  <h2>Fault codes</h2>
-  <div class="row">
-    <button id="btnRead" disabled>Read codes</button>
-    <button class="danger" id="btnClear" disabled>Clear codes</button>
+  <!-- CAR -->
+  <div class="pane" id="p_car">
+    <div class="warnbox" id="nosupport">
+      This browser can't reach Bluetooth serial devices. Open this page in <b>Chrome</b>, served over <b>https://</b>. Demo mode still works.
+    </div>
+    <div class="cols">
+      <section>
+        <h2>Engine &amp; car</h2>
+        <div class="grid">
+          <div class="tile na" id="t_load"><div class="lab">Engine load</div><div class="val">–<span class="unit">%</span></div></div>
+          <div class="tile na" id="t_throttle"><div class="lab">Throttle</div><div class="val">–<span class="unit">%</span></div></div>
+          <div class="tile na" id="t_iat"><div class="lab">Intake air</div><div class="val">–<span class="unit">°C</span></div></div>
+          <div class="tile na" id="t_volt"><div class="lab">Battery</div><div class="val">–<span class="unit">V</span></div></div>
+          <div class="tile na" id="t_litres"><div class="lab">Trip fuel</div><div class="val">–<span class="unit">L</span></div></div>
+          <div class="tile na" id="t_odo"><div class="lab">Odometer</div><div class="val">–<span class="unit">mi</span></div></div>
+        </div>
+      </section>
+      <section>
+        <h2>Fault codes</h2>
+        <div class="row">
+          <button id="btnRead" disabled>Read codes</button>
+          <button class="danger" id="btnClear" disabled>Clear codes</button>
+        </div>
+        <div id="dtcs" class="note">Not read yet.</div>
+        <p class="note">Standard engine/emissions codes only. Skoda-specific warnings (brake pads, ABS, airbags) need a VAG tool.</p>
+      </section>
+    </div>
   </div>
-  <div id="dtcs" class="note">Not read yet.</div>
-</section>
 
-<section>
-  <h2>Trip log</h2>
-  <div class="row">
-    <button id="btnCsv" disabled>Download CSV</button>
+  <!-- FUEL -->
+  <div class="pane" id="p_fuel">
+    <div class="cols">
+      <section>
+        <h2>Fill-ups &amp; calibration</h2>
+        <div class="row">
+          <button id="btnFill">I just brimmed the tank</button>
+          <button id="btnPrice">Diesel price</button>
+        </div>
+        <div class="note" id="fillInfo"></div>
+        <div id="history" style="margin-top:8px"></div>
+      </section>
+      <section>
+        <h2>Fuel data</h2>
+        <p class="note" id="fuelMethod">Fuel source: detected on connect.</p>
+        <p class="note">Optional: brim the tank and enter the litres each fill-up. The app compares pump vs car and corrects itself.</p>
+      </section>
+    </div>
   </div>
-  <div class="note" id="logInfo">0 samples. Logs ~1 sample/second while connected.</div>
-</section>
 
-<section>
-  <h2>Adapter log</h2>
-  <pre id="log"></pre>
-</section>
+  <!-- LOG -->
+  <div class="pane" id="p_log">
+    <div class="cols">
+      <section>
+        <h2>Trip log</h2>
+        <div class="row"><button id="btnCsv" disabled>Download CSV</button></div>
+        <div class="note" id="logInfo">0 samples. Logs ~1 sample/second while connected.</div>
+      </section>
+      <section>
+        <h2>Adapter log</h2>
+        <pre id="log"></pre>
+      </section>
+    </div>
+    <p class="note">Plug in the iCar2 (press its button if the light is off), pair it in Android Bluetooth settings once (PIN 1234 or 0000), ignition on, then Connect. Read-only except "Clear codes". Set it up before you drive, don't touch it while driving.</p>
+  </div>
+</main>
 
-<p class="note">Fit the dongle, pair it in Android Bluetooth settings first (PIN usually 1234 or 0000), ignition on, then Connect. Read-only except "Clear codes". Set it up before you drive, don't touch it while driving.</p>
+<nav>
+  <button data-p="drive" class="sel">Drive</button>
+  <button data-p="style">Style</button>
+  <button data-p="car">Car</button>
+  <button data-p="fuel">Fuel</button>
+  <button data-p="log">Log</button>
+</nav>
 
 <script>
 const SPP = '00001101-0000-1000-8000-00805f9b34fb';
@@ -170,6 +251,7 @@ const PIDS = {
   load:    {pid:'04', fast:false, f:b=>b[0]*100/255},
   coolant: {pid:'05', fast:false, f:b=>b[0]-40},
   iat:     {pid:'0F', fast:false, f:b=>b[0]-40},
+  oil:     {pid:'5C', fast:false, f:b=>b[0]-40},
 };
 const unsupported = new Set();
 
@@ -240,26 +322,28 @@ async function readFuelLph(){
 }
 function integrate(speedKmh, lphRaw){
   const now = performance.now();
-  if (lastInt==null || trip.t0==null){ lastInt = now; trip.t0 = trip.t0 || Date.now(); return; }
+  if (lastInt==null || trip.t0==null){ lastInt = now; trip.t0 = trip.t0 || Date.now(); return 0; }
   const dt = (now-lastInt)/3600000; lastInt = now;    // hours
-  if (dt <= 0 || dt > 0.003) return;                  // skip gaps > ~10s (e.g. while reading codes)
+  if (dt <= 0 || dt > 0.003) return 0;                // skip gaps > ~10s (e.g. while reading codes)
   const dkm = (speedKmh||0)*dt, dLraw = (lphRaw||0)*dt;
   trip.km += dkm; trip.L += dLraw*cal; if ((speedKmh||0) < 2) trip.idleL += dLraw*cal;
   sinceFill.km += dkm; sinceFill.L += dLraw;
+  return dt;
 }
+function tripKm(){ return (trip.odo0!=null && odoKm!=null && odoKm-trip.odo0 >= 0.3) ? odoKm-trip.odo0 : trip.km; }
 function mpg(km, L){ return (km>0.05 && L>0) ? LKM_TO_MPG/((L/km)*100) : null; }
 function renderFuel(speedKmh){
   const lph = curLph==null ? null : curLph*cal;
   show('lph', lph, 1);
   const inst = (lph!=null && speedKmh>3) ? LKM_TO_MPG/((lph/speedKmh)*100) : null;
   show('mpgInst', inst==null ? null : Math.min(inst, 199));
-  show('mpgTrip', mpg(trip.km, trip.L), 1);
-  show('miles', trip.km/KM_PER_MILE, 1);
+  show('mpgTrip', mpg(tripKm(), trip.L), 1);
+  show('miles', tripKm()/KM_PER_MILE, 1);
   show('litres', trip.L, 2);
   const c = $('t_cost'); const v = c.querySelector('.val');
-  if (trip.L > 0){ c.classList.remove('na'); const cost = trip.L*price; const ppm = trip.km>0.1 ? (cost/(trip.km/KM_PER_MILE))*100 : null;
-    v.textContent = '£'+cost.toFixed(2)+(ppm!=null ? ' · '+ppm.toFixed(1)+'p' : ''); }
-  latest.mpgTrip = mpg(trip.km, trip.L); latest.lph = lph;
+  if (trip.L > 0){ c.classList.remove('na'); const cost = trip.L*price; const ppm = tripKm()>0.1 ? (cost/(tripKm()/KM_PER_MILE))*100 : null;
+    v.innerHTML = '£'+cost.toFixed(2)+(ppm!=null ? '<span class="unit">'+ppm.toFixed(0)+'p/mi</span>' : ''); }
+  latest.mpgTrip = mpg(tripKm(), trip.L); latest.lph = lph;
   if (Math.random() < 0.05) store.set('sinceFill', sinceFill);
 }
 function fillInfo(){
@@ -299,10 +383,107 @@ function setPrice(){
   if (p > 0.5 && p < 5){ price = p; store.set('price', p); fillInfo(); }
 }
 function saveTrip(){
-  if (trip.km < 0.3) return;
+  if (tripKm() < 0.3) return;
   const h = store.get('trips', []);
-  h.push({date:new Date(trip.t0).toISOString(), miles:trip.km/KM_PER_MILE, litres:trip.L, mpg:mpg(trip.km,trip.L), idleL:trip.idleL});
-  store.set('trips', h.slice(-200)); store.set('sinceFill', sinceFill);
+  const m = styleMetrics();
+  h.push({date:new Date(trip.t0).toISOString(), miles:tripKm()/KM_PER_MILE, litres:trip.L, mpg:mpg(tripKm(),trip.L), idleL:st.idleL,
+          coldL:st.coldL, hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
+  store.set('trips', h.slice(-300)); store.set('sinceFill', sinceFill); store.set('bands', bands);
+  renderLearned();
+}
+
+
+// ---------- driving style (learns from your own trips) ----------
+let odoKm = null;
+const BANDS = [[0,20],[20,30],[30,40],[40,50],[50,60],[60,65],[65,70],[70,75],[75,200]]; // mph
+let bands = store.get('bands', BANDS.map(()=>({km:0,L:0})));
+let st;
+function newStyle(){ st = {hacc:0, hbrk:0, idleS:0, moveS:0, hiS:0, coastS:0, runS:0, coldL:0, idleL:0, hist:[], lastEvt:0}; }
+newStyle();
+function styleUpdate(dtH){
+  if (!dtH) return;
+  const dtS = dtH*3600, v = latest.speed||0, rpm = latest.rpm||0, lph = curLph==null ? null : curLph*cal;
+  if (rpm < 300) return;                                  // engine off
+  st.runS += dtS;
+  const now = performance.now();
+  st.hist.push([now, v]); while (st.hist.length && now - st.hist[0][0] > 1500) st.hist.shift();
+  const h0 = st.hist[0];
+  if (h0 && now - h0[0] >= 900){
+    const a = ((v - h0[1])/3.6) / ((now - h0[0])/1000);  // m/s²
+    if (now - st.lastEvt > 3000){
+      if (a > 2.5){ st.hacc++; st.lastEvt = now; }
+      else if (a < -3.0){ st.hbrk++; st.lastEvt = now; }
+    }
+  }
+  if (v < 2){ st.idleS += dtS; if (lph!=null) st.idleL += lph*dtH; }
+  else {
+    st.moveS += dtS;
+    if (lph!=null && v > 15 && lph < 0.3) st.coastS += dtS;
+    const mph = v/KM_PER_MILE, i = BANDS.findIndex(([lo,hi])=>mph>=lo && mph<hi);
+    if (i >= 0 && lph!=null){ bands[i].km += v*dtH; bands[i].L += lph*dtH; }
+  }
+  if (rpm > 2500) st.hiS += dtS;
+  if (latest.coolant!=null && latest.coolant < 60 && lph!=null) st.coldL += lph*dtH;
+}
+function styleMetrics(){
+  const miles = tripKm()/KM_PER_MILE, run = Math.max(st.runS,1), mov = Math.max(st.moveS,1);
+  const per10 = miles > 0.5 ? (st.hacc+st.hbrk)/miles*10 : 0;
+  const idlePct = st.idleS/run*100, hiPct = st.hiS/run*100, coastPct = st.coastS/mov*100;
+  let score = 100 - Math.min(35, per10*6) - Math.min(20, idlePct*0.8) - Math.min(20, hiPct*1.5) + Math.min(10, coastPct*0.3);
+  score = Math.max(0, Math.min(100, score));
+  return {miles, per10, idlePct, hiPct, coastPct, score: st.runS > 60 ? score : null};
+}
+function renderStyle(){
+  const m = styleMetrics();
+  show('score', m.score);
+  show('hacc', st.runS ? st.hacc : null); show('hbrk', st.runS ? st.hbrk : null);
+  show('idle', st.runS ? m.idlePct : null); show('hirpm', st.runS ? m.hiPct : null);
+  show('coast', st.moveS ? m.coastPct : null);
+  const sc = $('t_score'); sc.classList.remove('hot','crit');
+  if (m.score!=null){ if (m.score < 50) sc.classList.add('crit'); else if (m.score < 70) sc.classList.add('hot'); }
+  if (Math.random() < 0.03) store.set('bands', bands);
+}
+function bandMpg(i){ const b = bands[i]; return b.km/KM_PER_MILE >= 2 ? mpg(b.km, b.L) : null; }
+function renderLearned(){
+  // mpg by speed table
+  const rows = BANDS.map(([lo,hi],i)=>({lab: hi>100 ? lo+'+ mph' : lo+'–'+hi+' mph', m: bandMpg(i), mi: bands[i].km/KM_PER_MILE})).filter(r=>r.m!=null);
+  $('bands').innerHTML = rows.length ? rows.map(r=>`<div>${r.lab}: <b style="color:var(--txt)">${r.m.toFixed(1)} mpg</b> <span>(${r.mi.toFixed(0)} mi)</span></div>`).join('') : 'Builds up as you drive (needs 2+ miles in a speed range).';
+  // recent trips
+  const trips = store.get('trips', []);
+  $('trips').innerHTML = trips.length ? trips.slice(-6).reverse().map(t=>{
+    const d = new Date(t.date);
+    return `<div>${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}: ${t.miles.toFixed(1)} mi · <b style="color:var(--txt)">${t.mpg?t.mpg.toFixed(1):'–'} mpg</b>${t.score!=null?' · score '+Math.round(t.score):''}</div>`; }).join('') : 'None yet.';
+  // insights
+  const ins = [], real = trips.filter(t=>t.miles >= 1 && t.mpg);
+  const totMi = real.reduce((a,t)=>a+t.miles,0);
+  if (real.length < 3 || totMi < 20){ $('insights').textContent = `Learning… ${real.length} trip${real.length===1?'':'s'}, ${totMi.toFixed(0)} miles so far. Insights start after 3 trips and 20 miles.`; return; }
+  const avg = totMi / real.reduce((a,t)=>a+t.miles/t.mpg,0);
+  ins.push(`Your real-world average: <b>${avg.toFixed(1)} mpg</b> over ${totMi.toFixed(0)} miles.`);
+  const m6065 = bandMpg(5), m7075 = bandMpg(7);
+  if (m6065 && m7075 && m6065 > m7075){
+    const L100a = 100/m7075*L_PER_GAL, L100b = 100/m6065*L_PER_GAL;
+    ins.push(`At <b>70–75 mph</b> you get ${m7075.toFixed(1)} mpg vs ${m6065.toFixed(1)} at 60–65. Cruising at ~65 saves about <b>£${((L100a-L100b)*price).toFixed(2)} per 100 motorway miles</b>.`);
+  }
+  const idleL = real.reduce((a,t)=>a+(t.idleL||0),0);
+  if (idleL > 0.2) ins.push(`Idling has used <b>${idleL.toFixed(1)} L (£${(idleL*price).toFixed(2)})</b>, ${(idleL/totMi*100).toFixed(1)} L per 100 miles. Switch off for waits over a minute if Start-Stop doesn't.`);
+  if (real.length >= 6){
+    const sorted = [...real].sort((a,b)=>a.per10-b.per10), half = Math.floor(sorted.length/2);
+    const calm = sorted.slice(0,half), sharp = sorted.slice(-half);
+    const w = arr => arr.reduce((a,t)=>a+t.miles,0) / arr.reduce((a,t)=>a+t.miles/t.mpg,0);
+    const dc = w(calm) - w(sharp);
+    if (Math.abs(dc) > 1) ins.push(dc > 0 ? `Your <b>smoothest trips average ${dc.toFixed(1)} mpg more</b> than your sharpest ones (${w(calm).toFixed(1)} vs ${w(sharp).toFixed(1)}).` : `Smoothness isn't what's moving your mpg yet; speed and trip length matter more for you.`);
+  }
+  const short = real.filter(t=>t.miles < 4), long = real.filter(t=>t.miles >= 10);
+  if (short.length >= 2 && long.length >= 2){
+    const w = arr => arr.reduce((a,t)=>a+t.miles,0) / arr.reduce((a,t)=>a+t.miles/t.mpg,0);
+    ins.push(`Short trips (<4 mi) average <b>${w(short).toFixed(1)} mpg</b> vs <b>${w(long).toFixed(1)}</b> on 10+ mile trips; a cold diesel is thirsty, so combining errands pays.`);
+  }
+  const scored = real.filter(t=>t.score!=null);
+  if (scored.length >= 3){
+    const last = scored[scored.length-1].score, base = scored.slice(0,-1).reduce((a,t)=>a+t.score,0)/(scored.length-1);
+    ins.push(`Last trip scored <b>${Math.round(last)}</b> vs your usual <b>${Math.round(base)}</b>.`);
+  }
+  $('insights').innerHTML = ins.map(x=>`<div style="padding:4px 0">• ${x}</div>`).join('');
 }
 
 // ---------- rendering ----------
@@ -334,12 +515,13 @@ async function loop(){
       else {
         for (const [name,p] of Object.entries(PIDS)){
           if (!running) break;
-          if (unsupported.has(name)) { show(name,null); continue; }
+          if (unsupported.has(name) || (supportedPids.size && !supportedPids.has(p.pid))) { show(name,null); continue; }
           if (!p.fast && tick%5) continue;
           const v = await readPid(name); latest[name]=v; show(name,v);
         }
         if (fuelMethod){ curLph = await readFuelLph(); }
-        integrate(latest.speed, curLph); renderFuel(latest.speed||0);
+        const dtH = integrate(latest.speed, curLph); styleUpdate(dtH); renderFuel(latest.speed||0); renderStyle();
+        if (tick%20===0 && supportedPids.has('A6')){ const b = await rawPid('A6'); if (b && b.length>=4){ odoKm = (((b[0]<<24)>>>0) + (b[1]<<16) + (b[2]<<8) + b[3])/10; if (trip.odo0==null) trip.odo0 = odoKm; show('odo', odoKm/KM_PER_MILE); } }
         if (tick%10===0){ const v = await readVolt(); latest.volt=v; show('volt',v); }
       }
       record(); tick++;
@@ -358,14 +540,25 @@ function decodeDtc(hex4){
   return sys + ((n>>12)&3) + hex4.slice(1).toUpperCase();
 }
 function parseDtcs(lines, mode){
-  // Join multi-frame CAN replies: drop byte-count line, strip "0:" "1:" prefixes
-  let hex = lines.filter(l=>!/^[0-9A-F]{3}$/i.test(l)).map(l=>l.replace(/^\d:/,'').replace(/\s/g,'')).join('');
-  const i = hex.toUpperCase().indexOf(mode); if (i<0) return [];
-  hex = hex.slice(i+2);
-  const proto = (window._proto||'');
-  if (/^A?[6-9AB]$/i.test(proto)) hex = hex.slice(2); // CAN: count byte first
+  // Each ECU answers separately. Group lines into messages: a 3-hex-digit length line
+  // starts a multi-frame message whose frames are prefixed "0:", "1:"...; any other line
+  // is a single-frame message from one ECU.
+  const msgs = []; let cur = null;
+  for (const raw of lines){
+    const l = raw.replace(/\s/g,'').toUpperCase();
+    if (/^[0-9A-F]{3}$/.test(l)){ cur = ''; msgs.push(cur); continue; }
+    if (/^[0-9A-F]:/.test(l) && cur !== null){ msgs[msgs.length-1] += l.slice(2); continue; }
+    cur = null; msgs.push(l);
+  }
+  const isCan = /^A?[6-9AB]$/i.test(window._proto||'');
   const codes = [];
-  for (let k=0; k+4<=hex.length; k+=4){ const d = decodeDtc(hex.slice(k,k+4)); if (d) codes.push(d); }
+  for (const m of msgs){
+    if (!m.startsWith(mode)) continue;
+    let body = m.slice(2), n = null;
+    if (isCan){ n = parseInt(body.slice(0,2),16); body = body.slice(2); }
+    const max = n==null ? Math.floor(body.length/4) : Math.min(n, Math.floor(body.length/4));
+    for (let k=0; k<max; k++){ const d = decodeDtc(body.slice(k*4, k*4+4)); if (d) codes.push(d); }
+  }
   return [...new Set(codes)];
 }
 async function readCodes(){
@@ -398,16 +591,17 @@ async function connect(){
   try{
     setStatus('Choose the adapter…','busy');
     port = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds:[SPP], filters:[{bluetoothServiceClassId:SPP}] });
-    await port.open({ baudRate: 38400 });
+    for (let i=1;;i++){ try{ await port.open({ baudRate: 38400 }); break; } catch(e){ if (i>=3) throw e; log('Open attempt '+i+' failed, retrying… (press the iCar2 button if its light is off)'); setStatus('Waking adapter…','busy'); await new Promise(r=>setTimeout(r,2000)); } }
     writer = port.writable.getWriter(); reader = port.readable.getReader(); buf='';
     await initElm();
     await detectSupport();
-    trip = {km:0, L:0, idleL:0, t0:null}; lastInt = null;
+    trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle();
     setStatus('Connected','on'); ui(true); running = true; demo = false; keepAwake(); loop();
   }catch(e){ log('Connect failed: '+e.message); await stop('Not connected'); }
 }
 async function stop(msg){
   if (demo && _sfBackup){ sinceFill = _sfBackup; _sfBackup = null; }
+  if (demo && _bandsBackup){ bands = _bandsBackup; _bandsBackup = null; }
   if (!demo) saveTrip();
   running = false; demo = false;
   try{ reader?.releaseLock(); }catch{} try{ writer?.releaseLock(); }catch{}
@@ -420,17 +614,17 @@ let ds = 0;
 function demoStep(){
   ds += 0.25;
   const sp = Math.max(0, 60 + 40*Math.sin(ds/8));
-  latest = { speed:sp, rpm:800+sp*28+Math.random()*60, throttle:15+12*Math.sin(ds/3)+5, load:30+20*Math.sin(ds/4)+20,
+  latest = { oil:Math.min(98, 35+ds*1.5), speed:sp, rpm:800+sp*28+Math.random()*60, throttle:15+12*Math.sin(ds/3)+5, load:30+20*Math.sin(ds/4)+20,
              coolant:Math.min(92, 40+ds*2), iat:18+Math.random(), volt:14.1+Math.random()*0.1 };
   for (const [k,v] of Object.entries(latest)) show(k,v);
-  curLph = 0.6 + sp*0.055 + Math.max(0,latest.throttle-15)*0.15; integrate(sp, curLph); renderFuel(sp);
+  curLph = 0.6 + sp*0.055 + Math.max(0,latest.throttle-15)*0.15; const dtH = integrate(sp, curLph); styleUpdate(dtH); renderFuel(sp); renderStyle();
 }
-let _sfBackup=null;
-function startDemo(){ _sfBackup = {...sinceFill}; trip = {km:0, L:0, idleL:0, t0:null}; lastInt = null; $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
+let _sfBackup=null, _bandsBackup=null;
+function startDemo(){ _sfBackup = {...sinceFill}; _bandsBackup = JSON.parse(JSON.stringify(bands)); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); $('fuelMethod').textContent='Fuel source: demo (simulated).'; demo = true; running = true; ui(true); setStatus('Demo','on'); log('Demo mode, simulated data'); loop(); }
 
 // ---------- CSV ----------
 function csv(){
-  const cols = ['t','speed','rpm','throttle','load','coolant','iat','volt','lph','mpgTrip'];
+  const cols = ['t','speed','rpm','throttle','load','coolant','oil','iat','volt','lph','mpgTrip'];
   const rows = [cols.join(',')].concat(samples.map(s=>cols.map(c=>s[c]==null?'':(typeof s[c]==='number'?s[c].toFixed(2):s[c])).join(',')));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
@@ -445,10 +639,19 @@ $('btnClear').onclick = clearCodes;
 $('btnCsv').onclick = csv;
 $('btnFill').onclick = brim;
 $('btnPrice').onclick = setPrice;
-fillInfo();
-window.addEventListener('pagehide', ()=>{ store.set('sinceFill', sinceFill); });
+fillInfo(); renderLearned();
+window.addEventListener('pagehide', ()=>{ store.set('sinceFill', sinceFill); store.set('bands', bands); });
 if ('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
 document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && running) keepAwake(); });
+
+// ---------- tabs ----------
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('sel', x===b));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('sel', p.id==='p_'+b.dataset.p));
+  if (b.dataset.p==='style') renderLearned();
+  try{ localStorage.setItem('kobd_tab', b.dataset.p); }catch{}
+});
+try{ const t = localStorage.getItem('kobd_tab'); if (t) document.querySelector(`nav button[data-p="${t}"]`)?.click(); }catch{}
 </script>
 </body>
 </html>
