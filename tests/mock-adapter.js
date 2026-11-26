@@ -5,11 +5,17 @@
 (() => {
   const mock = window.__mock = {
     asleep: false,          // true -> port.open() rejects, like an iCar2 whose light is off
+    engine: true,           // false -> rpm 0, speed 0, no fuel flow; battery reads the ignition-on/engine-off value
+    hasRun: false,          // set when the engine has been on (drives the 11.0 V after-engine-off reading)
+    cruise: null,           // number -> constant speed (km/h) while the engine is on; null -> sinusoid 20..90
+    mode03: null,           // array of reply lines to override the default "4300" x2 (no codes)
+    restVolt: 12.4,         // ATRV before the engine has ever run (ignition on, rested battery)
     openAttempts: 0,
     log: [],                // every command received
     t0: Date.now(),
-    speedKmh() { const t = (Date.now() - this.t0) / 1000; return Math.max(0, Math.round(55 + 35 * Math.sin(t / 6))); },
-    rpm() { return Math.round(800 + this.speedKmh() * 26); },
+    speedKmh() { if (!this.engine) return 0; if (this.cruise != null) return this.cruise; const t = (Date.now() - this.t0) / 1000; return Math.max(0, Math.round(55 + 35 * Math.sin(t / 6))); },
+    rpm() { return this.engine ? Math.round(800 + this.speedKmh() * 26) : 0; },
+    volt() { if (this.engine) { this.hasRun = true; return 13.2 + (Date.now() % 3) / 10; } return this.hasRun ? 11.0 : this.restVolt; },
   };
   const hexb = (...b) => b.map(x => (x & 255).toString(16).padStart(2, '0').toUpperCase()).join('');  // ATS0: no spaces
   // supported-PID bitmask for one 32-PID block: PID base+i+1 -> bit i from MSB
@@ -17,34 +23,48 @@
     let m = 0; for (const p of pids) { const i = p - base - 1; if (i >= 0 && i < 32) m |= (1 << (31 - i)) >>> 0; }
     return [(m >>> 24) & 255, (m >>> 16) & 255, (m >>> 8) & 255, m & 255];
   };
-  const SUP = [0x04, 0x05, 0x0C, 0x0D, 0x0F, 0x11, 0x20, 0x40, 0x46, 0x5C, 0x5E];
-  function answer(c) {
+  // Real supported list from the car (26 Nov 2026). ECU 1 = engine (7E8), ECU 2 = gearbox (7E9) answers a subset.
+  const SUP = [0x01,0x04,0x05,0x0C,0x0D,0x0F,0x10,0x11,0x1C,0x1F,0x20,0x21,0x2F,0x30,0x31,0x33,0x40,0x42,0x45,0x46,0x49,0x4A,0x4C,0x51,0x5C,0x5E,0x60,0x61,0x62,0x63,0x65,0x67,0x69,0x6B,0x6D,0x70,0x71,0x77,0x78,0x7A,0x7F,0x80,0x83,0x85,0x88,0x8B,0x8C,0x8E,0x8F,0x9B,0x9C,0x9D,0x9E,0xA0,0xA2,0xA4,0xA5,0xA6,0xA7];
+  const SUP2 = [0x01, 0x04, 0x05, 0x0C, 0x0D, 0x20];
+  const rawBytes = (n) => Array(n).fill(0);
+  function answer(c) {          // -> array of reply lines, one per answering ECU (ATH0, ATS0)
     c = c.trim().toUpperCase();
-    if (c === 'ATZ') return 'ELM327 v1.5';
-    if (c.startsWith('AT')) {
-      if (c === 'ATRV') return '14.1V';
-      if (c === 'ATDPN') return 'A6';
-      return 'OK';
-    }
+    if (c === 'ATZ') return ['ELM327 v2.2'];
+    if (c.startsWith('AT')) return [c === 'ATRV' ? mock.volt().toFixed(1) + 'V' : c === 'ATDPN' ? 'A6' : 'OK'];
     const m = /^01([0-9A-F]{2})$/.exec(c);
     if (m) {
       const pid = parseInt(m[1], 16), sp = mock.speedKmh(), rpm = mock.rpm();
       const head = '41' + m[1];
-      if (pid % 0x20 === 0 && SUP.some(p => p > pid && p <= pid + 0x20)) return head + hexb(...mask(pid, SUP));
+      if (pid % 0x20 === 0) {
+        if (pid === 0) return ['4100981B8013', '410098180001'];       // verbatim from the real car
+        const l1 = hexb(...mask(pid, SUP)), l2 = hexb(...mask(pid, SUP2));
+        return SUP.some(p => p > pid && p <= pid + 0x20) ? [head + l1, head + l2] : [head + l1];
+      }
+      if (!SUP.includes(pid)) return ['NO DATA'];
       switch (pid) {
-        case 0x04: return head + hexb(90);
-        case 0x05: return head + hexb(90 + 40);
-        case 0x0C: return head + hexb((rpm * 4) >> 8, (rpm * 4) & 255);
-        case 0x0D: return head + hexb(sp);
-        case 0x0F: return head + hexb(20 + 40);
-        case 0x11: return head + hexb(60);
-        case 0x46: return head + hexb(8 + 40);
-        case 0x5C: return head + hexb(88 + 40);
-        case 0x5E: { const v = Math.round((1.2 + sp * 0.05) * 20); return head + hexb(v >> 8, v & 255); }
+        case 0x04: return [head + hexb(mock.engine ? 90 : 0)];
+        case 0x05: return [head + hexb(90 + 40)];
+        case 0x0C: return [head + hexb((rpm * 4) >> 8, (rpm * 4) & 255)];
+        case 0x0D: return [head + hexb(sp)];
+        case 0x0F: return [head + hexb(20 + 40)];
+        case 0x11: return [head + hexb(mock.engine ? 60 : 0)];
+        case 0x46: return [head + hexb(8 + 40)];
+        case 0x5C: return [head + hexb(88 + 40)];
+        case 0x5E: { const v = mock.engine ? Math.round((0.75 + sp * 0.05) * 20) : 0; return [head + hexb(v >> 8, v & 255)]; }
+        case 0x10: { const v = mock.engine ? 400 + sp * 10 : 0; return [head + hexb(v >> 8, v & 255)]; }
+        case 0x1F: return [head + hexb(0, 120)];
+        case 0x42: { const v = Math.round(mock.volt() * 1000); return [head + hexb(v >> 8, v & 255)]; }
+        case 0x51: return [head + hexb(4)];
+        case 0x1C: return [head + hexb(6)];
+        case 0x2F: return [head + hexb(128)];
+        case 0x33: return [head + hexb(100)];
+        default: return [head + hexb(...rawBytes(pid === 0x01 ? 4 : 2))];
       }
     }
-    if (c === '03') return '4300';
-    return 'NO DATA';
+    if (c === '03') return mock.mode03 || ['4300', '4300'];                              // no codes, two ECUs: the old fake-C0300 bug
+    if (c === '07') return ['4700', '4700'];
+    if (c === '04') return ['44', '44'];
+    return ['NO DATA'];
   }
   class Port {
     constructor() { this._q = []; this._wait = null; this._open = false; }
@@ -60,7 +80,7 @@
         async write(bytes) {
           for (const c of new TextDecoder().decode(bytes).split('\r').filter(Boolean)) {
             mock.log.push(c);
-            setTimeout(() => self._push(c + '\r' + answer(c) + '\r\r>'), 15);
+            setTimeout(() => self._push(c + '\r' + answer(c).join('\r') + '\r\r>'), 15);
           }
         }, releaseLock() {} }; } };
     }
