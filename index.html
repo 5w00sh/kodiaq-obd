@@ -70,7 +70,7 @@
 <body>
 <header>
   <span class="dot" id="dot"></span>
-  <h1>Kodiaq OBD</h1>
+  <h1>Kodiaq OBD <small id="ver" style="font-size:11px;color:var(--mut);font-weight:500"></small></h1>
   <span id="status">Not connected</span>
   <button class="pri" id="btnConnect">Connect</button>
   <button id="btnDemo">Demo</button>
@@ -156,6 +156,18 @@
         <p class="note">The filter burns off soot every few hundred miles ("regen", ~10–20 min of driving). Switching off mid-regen leaves it part-done; repeated interruptions are how DPFs block on short-trip diesels.</p>
       </section>
       <section>
+        <h2>Health scan</h2>
+        <div class="row">
+          <button class="pri" id="btnScan" disabled>Run full scan</button>
+          <button id="btnReport" disabled>Share report</button>
+        </div>
+        <div id="scanOut" class="note">Reads every sensor the car supports, plus codes, emissions readiness and the VIN, and saves a snapshot to compare against next time. Runs automatically once a day when you connect, and a lighter learning check every 10 min while driving.</div>
+        <h2 style="margin-top:12px">Learned sensor health</h2>
+        <div id="learnOut" class="note">Learning…</div>
+        <h2 style="margin-top:12px">Saved scans</h2>
+        <div id="scanList" class="note">None yet.</div>
+      </section>
+      <section>
         <h2>Battery health</h2>
         <div id="battInfo" class="note"></div>
       </section>
@@ -204,6 +216,7 @@
         <pre id="log"></pre>
       </section>
     </div>
+    <p class="note" id="verNote"></p>
     <p class="note">Plug in the iCar2 (press its button if the light is off), pair it in Android Bluetooth settings once (PIN 1234 or 0000), ignition on, then Connect. Read-only except "Clear codes". Set it up before you drive, don't touch it while driving.</p>
   </div>
 </main>
@@ -230,7 +243,7 @@ function setStatus(txt, state){ $('status').textContent = txt; $('dot').classNam
 function ui(connected){
   $('btnConnect').disabled = connected; $('btnDemo').disabled = connected;
   $('btnStop').disabled = !connected;
-  $('btnRead').disabled = !connected; $('btnClear').disabled = !connected;
+  $('btnRead').disabled = !connected; $('btnClear').disabled = !connected; $('btnScan').disabled = !connected;
 }
 
 // ---------- ELM327 transport ----------
@@ -246,11 +259,14 @@ async function readUntilPrompt(timeout=2500){
     buf += dec.decode(r.value);
   }
 }
-async function cmd(c, timeout){
-  await writer.write(enc.encode(c + '\r'));
-  const raw = await readUntilPrompt(timeout);
-  const lines = raw.split(/[\r\n]+/).map(l=>l.trim()).filter(l=>l && l!==c && !/^SEARCHING/i.test(l));
-  return lines;
+let cmdChain = Promise.resolve();
+function cmd(c, timeout){
+  const run = async ()=>{
+    await writer.write(enc.encode(c + '\r'));
+    const raw = await readUntilPrompt(timeout);
+    return raw.split(/[\r\n]+/).map(l=>l.trim()).filter(l=>l && l!==c && !/^SEARCHING/i.test(l));
+  };
+  const p = cmdChain.then(run, run); cmdChain = p.catch(()=>{}); return p;
 }
 
 async function initElm(){
@@ -696,6 +712,7 @@ async function loop(){
         if (tick%20===0 && supportedPids.has('A6')){ const b = await rawPid('A6'); if (b && b.length>=4){ odoKm = (((b[0]<<24)>>>0) + (b[1]<<16) + (b[2]<<8) + b[3])/10; if (trip.odo0==null) trip.odo0 = odoKm; show('odo', odoKm/KM_PER_MILE); } }
         if (tick%10===0){ const v = await readVolt(); latest.volt=v; show('volt',v); }
         engineWatch();
+        if (!scanning && tick > 20 && Date.now() - lastSweep > 10*60*1000 && (carState()==='idle' || carState()==='drive')) await learningCheck();
       }
       if (demo || tripOpen) record(); tick++;
     }catch(e){
@@ -706,6 +723,187 @@ async function loop(){
   }
 }
 
+
+
+// =====================================================================
+// HEALTH SCAN + LEARNING MODE
+// =====================================================================
+const APP_VERSION = '5.1';
+// confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
+const DEC = {
+  '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>b[0]-40], '0B':['Intake manifold pressure','kPa',b=>b[0]],
+  '0C':['RPM','rpm',b=>(b[0]*256+b[1])/4], '0D':['Speed','km/h',b=>b[0]], '0F':['Intake air','°C',b=>b[0]-40],
+  '10':['Air flow (MAF)','g/s',b=>(b[0]*256+b[1])/100], '11':['Throttle','%',b=>b[0]*100/255],
+  '1C':['OBD standard','',b=>({1:'OBD-II (CARB)',6:'EOBD (Europe)',7:'EOBD + OBD-II',9:'EOBD + OBD',13:'JOBD+EOBD'}[b[0]]||('type '+b[0]))],
+  '1F':['Run time since start','s',b=>b[0]*256+b[1]], '21':['Distance with warning light on','km',b=>b[0]*256+b[1]],
+  '2F':['Fuel level','%',b=>b[0]*100/255], '30':['Warm-ups since codes cleared','',b=>b[0]],
+  '31':['Distance since codes cleared','km',b=>b[0]*256+b[1]], '33':['Barometric pressure','kPa',b=>b[0]],
+  '42':['Control module voltage','V',b=>(b[0]*256+b[1])/1000], '45':['Relative throttle','%',b=>b[0]*100/255],
+  '46':['Outside air','°C',b=>b[0]-40], '49':['Accelerator pedal D','%',b=>b[0]*100/255], '4A':['Accelerator pedal E','%',b=>b[0]*100/255],
+  '4C':['Commanded throttle actuator','%',b=>b[0]*100/255],
+  '51':['Fuel type','',b=>({1:'Petrol',4:'Diesel',8:'Electric'}[b[0]]||('type '+b[0]))], '5C':['Oil temperature','°C',b=>b[0]-40],
+  '5E':['Fuel rate','L/h',b=>(b[0]*256+b[1])/20], '61':['Driver demand torque','%',b=>b[0]-125], '62':['Actual torque','%',b=>b[0]-125],
+  '63':['Reference torque','Nm',b=>b[0]*256+b[1]], '78':['Exhaust temp (max)','°C',b=>parse78([0x0F&b[0],...b.slice(1)])],
+  '7A':['DPF differential pressure','kPa',b=>(b[0]&1) ? (b[1]*256+b[2])/100 : null], '8B':['DPF regen trigger','%',b=>b.length>2 ? b[2]*100/255 : null],
+  '8E':['Engine friction torque','%',b=>b[0]-125], '9D':['Engine fuel rate','g/s',b=>(b[0]*256+b[1])/50],
+  '9E':['Exhaust flow','kg/h',b=>(b[0]*256+b[1])/5], 'A6':['Odometer','km',b=>(((b[0]<<24)>>>0)+(b[1]<<16)+(b[2]<<8)+b[3])/10],
+};
+// which readings are stable enough to learn a "normal" for, per state
+const LEARN = {
+  off:  ['42','BATT'],
+  idle: ['0C','5E','04','05','5C','10','0B','42','7A','78','8E','BATT'],
+  drive:['05','5C','42','BATT'],
+};
+let scans = store.get('scans', []), pidStats = store.get('pidStats', {}), lastSweep = 0, scanning = false;
+const hex = b => b.map(x=>x.toString(16).padStart(2,'0')).join(' ');
+function carState(){ const rpm = latest.rpm||0, v = latest.speed||0, warm = (latest.coolant||0) >= 75;
+  return rpm < 300 ? 'off' : !warm ? 'cold' : v < 2 ? 'idle' : 'drive'; }
+function groupMsgs(lines){ const msgs = []; let cur = null;
+  for (const raw of lines){ const l = raw.replace(/\s/g,'').toUpperCase();
+    if (/^[0-9A-F]{3}$/.test(l)){ cur = ''; msgs.push(cur); continue; }
+    if (/^[0-9A-F]:/.test(l) && cur !== null){ msgs[msgs.length-1] += l.slice(2); continue; }
+    cur = null; msgs.push(l); }
+  return msgs; }
+async function readVin(){
+  try{ const m = groupMsgs(await cmd('0902', 5000)).find(x=>x.startsWith('4902')); if (!m) return null;
+    const bytes = m.slice(6).match(/../g)||[]; const s = bytes.map(h=>String.fromCharCode(parseInt(h,16))).join('').replace(/[^A-Z0-9]/g,'');
+    return s.length >= 17 ? s.slice(-17) : s || null; }catch{ return null; }
+}
+function decodeMonitors(b){ // PID 01
+  if (!b || b.length < 4) return null;
+  const mil = !!(b[0]&0x80), dtcCount = b[0]&0x7F, diesel = !!(b[1]&0x08), inc = [], ok = [];
+  const chk = (avail, incomplete, name)=>{ if (avail) (incomplete ? inc : ok).push(name); };
+  chk(b[1]&1, b[1]&0x10, 'Misfire'); chk(b[1]&2, b[1]&0x20, 'Fuel system'); chk(b[1]&4, b[1]&0x40, 'Components');
+  const names = diesel ? ['NMHC catalyst','NOx/SCR (AdBlue)',null,'Boost pressure',null,'Exhaust gas sensor','Particulate filter (DPF)','EGR/VVT']
+                       : ['Catalyst','Heated catalyst','Evap system','Secondary air','A/C refrigerant','O2 sensor','O2 heater','EGR'];
+  names.forEach((n,i)=>{ if (n) chk(b[2]&(1<<i), b[3]&(1<<i), n); });
+  return {mil, dtcCount, diesel, ok, inc};
+}
+function learnValue(state, key, v){
+  if (v==null || !isFinite(v) || !LEARN[state] || !LEARN[state].includes(key)) return null;
+  const k = state+':'+key, s = pidStats[k] || (pidStats[k] = {n:0, mean:0, m2:0});
+  let flag = null;
+  if (s.n >= 30){ const sd = Math.max(Math.sqrt(s.m2/(s.n-1)), Math.abs(s.mean)*0.02, 0.3); const z = (v - s.mean)/sd;
+    if (Math.abs(z) > 4) flag = {key, state, v, mean:s.mean, sd, z}; }
+  if (!flag){ // don't learn from outliers
+    if (s.n < 300){ s.n++; const d = v - s.mean; s.mean += d/s.n; s.m2 += d*(v - s.mean); }
+    else { const a = 0.01, d = v - s.mean; s.mean += a*d; s.m2 = (1-a)*(s.m2 + a*d*d*(s.n-1)); }
+  }
+  return flag;
+}
+async function sweep(){
+  const out = {}, state = carState();
+  for (const pid of [...supportedPids].sort()){
+    if (['00','20','40','60','80','A0','C0'].includes(pid)) continue;
+    let b = null; try{ b = await rawPid(pid); }catch{}
+    if (!b){ out[pid] = {ok:false}; continue; }
+    const d = DEC[pid]; let v = null; try{ v = d ? d[2](b) : null; }catch{}
+    out[pid] = {ok:true, raw:hex(b), v, label:d?d[0]:null, unit:d?d[1]:null};
+  }
+  const bv = await readVolt(); out.BATT = {ok:bv!=null, v:bv, label:'Battery (at adapter)', unit:'V'};
+  // learning + anomalies + dropouts
+  const flags = [];
+  for (const [k,o] of Object.entries(out)){
+    const seen = pidStats['seen:'+k] || (pidStats['seen:'+k] = {ok:0, miss:0});
+    if (o.ok){ seen.ok++; seen.miss = 0; const f = learnValue(state, k, o.v); if (f) flags.push({...f, label:o.label}); }
+    else if (state !== 'off'){ seen.miss++; if (seen.ok >= 3 && seen.miss === 2) flags.push({key:k, dropout:true, label:(DEC[k]||[k])[0]}); }
+  }
+  store.set('pidStats', pidStats); lastSweep = Date.now();
+  return {state, out, flags};
+}
+async function codesNow(){
+  window._proto = (await cmd('ATDPN')).join('').trim();
+  return { stored: parseDtcs(await cmd('03',5000),'43'), pending: parseDtcs(await cmd('07',5000),'47'), permanent: parseDtcs(await cmd('0A',5000),'4A') };
+}
+function verdict(sc){
+  const items = []; const add = (lvl, txt)=>items.push({lvl, txt});
+  const m = sc.monitors, o = sc.sweep.out, val = k => o[k]&&o[k].ok ? o[k].v : null;
+  if (m) add(m.mil ? 'bad':'ok', m.mil ? 'Engine warning light is ON' : 'Engine warning light off');
+  const c = sc.codes, nC = c.stored.length + c.pending.length + c.permanent.length;
+  add(nC ? 'bad':'ok', nC ? `Fault codes: ${[...c.stored.map(x=>x+' stored'),...c.pending.map(x=>x+' pending'),...c.permanent.map(x=>x+' permanent')].join(', ')}` : 'No engine/emissions fault codes');
+  if (m) add(m.inc.length ? 'warn':'ok', m.inc.length ? `Emissions readiness not complete: ${m.inc.join(', ')} (normal after a battery disconnect/code clear; needs a few drives)` : `All ${m.ok.length} emissions monitors complete (MOT-ready)`);
+  const dsc = val('31'), wu = val('30');
+  if (dsc!=null) add(dsc < 300 ? 'warn':'ok', `Codes last cleared ${Math.round(dsc/1.609)} miles / ${wu??'?'} warm-ups ago` + (dsc < 300 ? ' (recent: worth knowing why)' : ''));
+  const mil = val('21'); if (mil) add('warn', `Driven ${Math.round(mil/1.609)} miles with the warning light on (historic)`);
+  const bv = sc.state==='off' ? val('BATT') : null; if (bv!=null) add(bv>=12.4?'ok':bv>=12.2?'warn':'bad', `Battery before start ${bv.toFixed(1)} V` + (bv<12.2?' (low: charge & test)':''));
+  const run = sc.state!=='off' ? val('BATT') : null; if (run!=null) add(run>=13.0?'ok':'warn', `Charging voltage ${run.toFixed(1)} V` + (run<13?' (low while running)':''));
+  const cool = val('05'); if (sc.state==='idle'||sc.state==='drive'){ if (cool!=null) add(cool>=80&&cool<=105?'ok':'warn', `Coolant ${cool.toFixed(0)} °C` + (cool<80?' (not at normal temp: thermostat?)':cool>105?' (hot)':'')); }
+  const trig = val('8B'); if (trig!=null) add(trig>=90?'warn':'ok', `DPF regen trigger ${trig.toFixed(0)}%` + (trig>=90?' (regen due: do a 20-min faster drive)':''));
+  const fl = val('2F'); if (fl!=null) add(fl<15?'warn':'ok', `Fuel ${fl.toFixed(0)}%`);
+  sc.sweep.flags.forEach(f=> add('warn', f.dropout ? `${f.label||f.key} stopped responding (was fine before)` : `${f.label||f.key} unusual: ${f.v.toFixed(2)} vs normal ${f.mean.toFixed(2)} ±${f.sd.toFixed(2)} (${f.state})`));
+  return items;
+}
+function diffScans(a, b){ // a = newer, b = older
+  const d = [], va = (s,k)=>s.sweep.out[k]&&s.sweep.out[k].ok ? s.sweep.out[k].v : null;
+  const oa = va(a,'A6'), ob = va(b,'A6'); if (oa!=null && ob!=null) d.push(`Driven ${((oa-ob)/1.609).toFixed(0)} miles since`);
+  const ca = va(a,'31'), cb = va(b,'31'); if (ca!=null && cb!=null && ca < cb) d.push('⚠ Fault codes were CLEARED since the last scan');
+  const codes = s=>[...s.codes.stored,...s.codes.pending,...s.codes.permanent];
+  const nw = codes(a).filter(x=>!codes(b).includes(x)), gone = codes(b).filter(x=>!codes(a).includes(x));
+  if (nw.length) d.push('New codes: '+nw.join(', ')); if (gone.length) d.push('Codes gone: '+gone.join(', '));
+  if (a.monitors && b.monitors){ const ni = a.monitors.inc.filter(x=>!b.monitors.inc.includes(x)); if (ni.length) d.push('Monitors now incomplete: '+ni.join(', ')); }
+  if (a.state==='off' && b.state==='off'){ const x = va(a,'BATT'), y = va(b,'BATT'); if (x!=null && y!=null && Math.abs(x-y)>=0.1) d.push(`Battery before start ${y.toFixed(1)} → ${x.toFixed(1)} V`); }
+  const ta = va(a,'8B'), tb = va(b,'8B'); if (ta!=null && tb!=null) d.push(`DPF trigger ${tb.toFixed(0)} → ${ta.toFixed(0)}%`);
+  const lost = Object.keys(b.sweep.out).filter(k=>b.sweep.out[k].ok && a.sweep.out[k] && !a.sweep.out[k].ok && a.state!=='off'); if (lost.length) d.push('Sensors no longer answering: '+lost.join(' '));
+  return d.length ? d : ['No changes worth noting'];
+}
+const LV = {ok:['✓','var(--ok)'], warn:['!','var(--warn)'], bad:['✕','var(--bad)']};
+function renderScans(){
+  $('ver').textContent = 'v'+APP_VERSION; $('verNote').textContent = 'Kodiaq OBD v'+APP_VERSION;
+  const L = $('scanList');
+  if (!scans.length){ L.textContent = 'None yet.'; } else {
+    L.innerHTML = scans.slice(-8).reverse().map((s,i,arr)=>{ const items = s.verdict, bad = items.filter(x=>x.lvl==='bad').length, w = items.filter(x=>x.lvl==='warn').length;
+      const d = new Date(s.date); const prev = arr[i+1];
+      return `<div><b style="color:var(--txt)">${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</b> · ${s.auto?'auto':'manual'} · ${s.state} · ${bad?`<span style="color:var(--bad)">${bad} problem${bad>1?'s':''}</span>`:w?`<span style="color:var(--warn)">${w} to watch</span>`:'<span style="color:var(--ok)">all good</span>'}${prev?'<br><span>vs previous: '+diffScans(s,prev).join(' · ')+'</span>':''}</div>`; }).join('');
+  }
+  // learned ranges
+  const rows = Object.entries(pidStats).filter(([k,s])=>!k.startsWith('seen:') && s.n>=10).map(([k,s])=>{ const [st,key] = k.split(':'); const lab = key==='BATT'?'Battery':(DEC[key]||[key])[0]; const u = key==='BATT'?'V':(DEC[key]||['',''])[1];
+    return `${lab} (${st}): ${s.mean.toFixed(key==='42'||key==='BATT'?2:1)} ${u} ±${Math.sqrt(s.m2/Math.max(1,s.n-1)).toFixed(2)} · n=${s.n}${s.n<30?' (learning)':''}`; });
+  $('learnOut').innerHTML = rows.length ? rows.map(r=>`<div>${r}</div>`).join('') : 'Learning: needs a few minutes of warm idle and driving. Each sensor gets its own normal range per state (engine off / warm idle / driving), then anything 4× outside its usual spread, or a sensor that stops answering, gets flagged.';
+}
+function showScan(sc){
+  $('scanOut').innerHTML = `<div><b style="color:var(--txt)">${sc.vin?'VIN '+sc.vin+' · ':''}${sc.supported} sensors supported · ${Object.values(sc.sweep.out).filter(o=>o.ok).length} answered</b></div>`
+    + sc.verdict.map(x=>`<div><b style="color:${LV[x.lvl][1]}">${LV[x.lvl][0]}</b> ${x.txt}</div>`).join('')
+    + `<details style="margin-top:6px"><summary>All readings (${Object.keys(sc.sweep.out).length})</summary>`
+    + Object.entries(sc.sweep.out).map(([k,o])=>`<div>${k==='BATT'?'ATRV':'01'+k} ${o.label||''}: ${o.ok ? (o.v!=null ? (typeof o.v==='number'?o.v.toFixed(2):o.v)+' '+(o.unit||'') : '<span>raw '+o.raw+'</span>') : '<span style="color:var(--bad)">no reply</span>'}</div>`).join('') + '</details>';
+  $('btnReport').disabled = false;
+}
+function reportText(sc){
+  const d = new Date(sc.date);
+  return `Kodiaq OBD v${APP_VERSION} health scan, ${d.toLocaleString('en-GB')} (${sc.auto?'auto':'manual'}, engine ${sc.state})\n`
+    + (sc.vin?`VIN ${sc.vin}\n`:'') + `Protocol ${sc.proto} · ${sc.supported} PIDs supported\n\nSUMMARY\n`
+    + sc.verdict.map(x=>`[${x.lvl.toUpperCase()}] ${x.txt}`).join('\n')
+    + (sc.monitors?`\n\nREADINESS\nComplete: ${sc.monitors.ok.join(', ')||'none'}\nIncomplete: ${sc.monitors.inc.join(', ')||'none'}`:'')
+    + `\n\nREADINGS\n` + Object.entries(sc.sweep.out).map(([k,o])=>`${k==='BATT'?'ATRV':'01'+k}\t${o.label||''}\t${o.ok?(o.v!=null?(typeof o.v==='number'?o.v.toFixed(2):o.v)+' '+(o.unit||''):'raw '+o.raw):'no reply'}`).join('\n')
+    + (scans.length>1 ? `\n\nCHANGES VS PREVIOUS\n`+diffScans(sc, scans[scans.length-2]).join('\n') : '') + '\n';
+}
+async function shareReport(){
+  const sc = scans[scans.length-1]; if (!sc) return; const txt = reportText(sc);
+  const name = 'kodiaq-health-'+sc.date.slice(0,16).replace(/[:T]/g,'-')+'.txt';
+  try{ if (navigator.canShare && navigator.canShare({files:[new File([txt],name,{type:'text/plain'})]})){ await navigator.share({files:[new File([txt],name,{type:'text/plain'})], title:'Kodiaq health scan'}); return; } }catch(e){ if (e.name==='AbortError') return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt],{type:'text/plain'})); a.download = name; a.click();
+}
+async function fullScan(auto){
+  if (scanning || !port) return; scanning = true; const btn = $('btnScan'); btn.disabled = true; btn.textContent = 'Scanning…';
+  $('scanOut').innerHTML = 'Scanning every supported sensor… (10–20 s)'; log('Health scan started ('+(auto?'auto':'manual')+')');
+  try{
+    const proto = (await cmd('ATDPN')).join('').trim();
+    const mb = await rawPid('01'), monitors = decodeMonitors(mb);
+    const codes = await codesNow(); const vin = await readVin(); const sw = await sweep();
+    const sc = {v:APP_VERSION, date:new Date().toISOString(), auto:!!auto, state:sw.state, proto, vin, supported:supportedPids.size, monitors, codes, sweep:sw};
+    sc.verdict = verdict(sc); scans.push(sc); scans = scans.slice(-40); store.set('scans', scans); store.set('lastFullScan', Date.now());
+    showScan(sc); renderScans(); log('Health scan saved: '+sc.verdict.filter(x=>x.lvl!=='ok').length+' item(s) to look at');
+  }catch(e){ $('scanOut').textContent = 'Scan failed: '+e.message; log('Scan failed: '+e.message); }
+  scanning = false; btn.disabled = !port; btn.textContent = 'Run full scan';
+}
+async function learningCheck(){ // light background sweep while driving: learn + flag, no snapshot
+  if (scanning) return; scanning = true;
+  try{ const sw = await sweep(); renderScans();
+    if (sw.flags.length){ const msg = sw.flags.map(f=>f.dropout ? `${f.label||f.key} stopped responding` : `${f.label||f.key} unusual (${f.v.toFixed(1)} vs ~${f.mean.toFixed(1)})`).join('; ');
+      log('Learning check: '+msg); setStatus('⚠ '+msg, 'busy'); }
+    else log('Learning check ('+sw.state+'): all sensors within their usual ranges');
+  }catch(e){ log('Learning check failed: '+e.message); }
+  scanning = false;
+}
 
 // ---------- engine on/off → automatic trip start/end ----------
 let tripOpen = false, offSince = null;
@@ -821,6 +1019,7 @@ async function connect(){
          else log('Engine already running, battery pre-start check skipped'); }catch(e){ log('Battery check failed: '+e.message); }
     if (!(batt.length && batt[batt.length-1].v < 12.2 && Date.now()-new Date(batt[batt.length-1].date) < 60000)) setStatus('Connected','on');
     ui(true); running = true; demo = false; keepAwake(); loop();
+    if (Date.now() - store.get('lastFullScan', 0) > 20*3600*1000) setTimeout(()=>fullScan(true), 1500);
   }catch(e){ log('Connect failed: '+e.message); await stop('Not connected'); }
 }
 async function stop(msg){
@@ -868,8 +1067,10 @@ $('btnRead').onclick = readCodes;
 $('btnClear').onclick = clearCodes;
 $('btnCsv').onclick = csv;
 $('btnFill').onclick = brim;
+$('btnScan').onclick = ()=>fullScan(false);
+$('btnReport').onclick = shareReport;
 $('btnPrice').onclick = setPrice;
-fillInfo(); trainModel(); renderLearned(); renderDpf(); renderVsExpected(); renderBattery();
+fillInfo(); trainModel(); renderLearned(); renderDpf(); renderVsExpected(); renderBattery(); renderScans(); if (scans.length) showScan(scans[scans.length-1]);
 window.addEventListener('pagehide', ()=>{ store.set('sinceFill', sinceFill); store.set('bands', bands); });
 if ('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
 document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && running) keepAwake(); });
