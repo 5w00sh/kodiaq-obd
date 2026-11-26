@@ -127,7 +127,7 @@
   #p_drive.big .val{font-size:clamp(30px,min(76cqh,30cqw),300px)}
   #p_drive.big .hero .val{font-size:clamp(60px,min(84cqh,31cqw),360px)}
   #p_drive.big .unit{font-size:.26em}
-  #p_drive.big #t_lph,#p_drive.big #t_score,#p_drive.big #t_oil,#p_drive.big #t_miles,#p_drive.big #t_cost{display:none}
+  #p_drive.big #t_rpm,#p_drive.big #t_score,#p_drive.big #t_oil,#p_drive.big #t_miles,#p_drive.big #t_cost{display:none}
   #p_drive.big .drive{grid-template-rows:2fr 2fr 1.2fr 1fr}
   #p_drive.big #t_coolant{grid-column:span 2}
   @media (orientation:landscape){
@@ -158,7 +158,7 @@
   #regen.show{display:block}
   /* adapter-asleep message: on top of every tab until the next Connect */
   #asleep{position:absolute;left:var(--gap);right:var(--gap);top:var(--gap);z-index:4;display:none;gap:14px;align-items:center;background:var(--warnBg);border:2px solid var(--warn);color:var(--warnTxt);border-radius:var(--r);padding:16px 18px;font-size:var(--fs-l);font-weight:700;line-height:1.3;box-shadow:0 10px 32px #0008;animation:paneIn .3s var(--ease)}
-  #asleep.show{display:flex}
+  #asleep.show{display:flex;cursor:pointer}
   #asleep svg{flex:none;width:34px;height:34px;fill:none;stroke:var(--warn);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #asleep small{display:block;font-weight:500;font-size:var(--fs-s);opacity:.85;margin-top:4px}
   /* ===== startup splash ===== */
@@ -229,7 +229,7 @@
 <main>
   <div id="asleep" role="alert" aria-live="assertive">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>
-    <div>Adapter asleep – press the button on the iCar2, then tap Connect<small>It sleeps 30 min after the engine stops and only wakes with its button.</small></div>
+    <div>Adapter asleep – press the button on the iCar2, then tap Connect<small>It sleeps 30 min after the engine stops and only wakes with its button. Tap to dismiss.</small></div>
   </div>
   <!-- DRIVE -->
   <div class="pane sel" id="p_drive">
@@ -1159,6 +1159,7 @@ async function clearCodes(){
 // ---------- connect / stop ----------
 let wakeLock;
 async function keepAwake(){ try{ wakeLock = await navigator.wakeLock?.request('screen'); }catch{} }
+$('asleep').onclick = ()=>showAsleep(false);
 function showAsleep(on){ $('asleep').classList.toggle('show', !!on); }
 let openFailed = false;
 async function connect(){

@@ -84,9 +84,17 @@ with app(viewport=(412, 915)) as page:
     after = page.evaluate("parseFloat(getComputedStyle(document.querySelector('#t_speed .val')).fontSize)")
     check(after > before * 1.15, f"big mode enlarges the numbers ({before:.0f}px -> {after:.0f}px)")
     check(not page.is_visible("#t_speed .lab") and page.is_visible("#t_speed .val"), "labels hidden, numbers shown")
+    check(page.is_visible("#t_lph") and not page.is_visible("#t_rpm"), "big mode shows fuel flow (L/h) instead of RPM")
+    check(page.is_visible("#t_mpgInst") and page.is_visible("#t_coolant"), "big mode keeps instant mpg and coolant")
     page.screenshot(path=str(OUT / "big-mode.png"))
     page.reload(); page.wait_for_timeout(300)
     check(page.evaluate("document.getElementById('p_drive').classList.contains('big')"), "big mode persists across reloads")
     page.click("#btnBig")
     check(page.is_visible("#t_speed .lab"), "toggles back to normal")
     check(not page.errors, "no JS errors" + ("" if not page.errors else ": " + "; ".join(page.errors)))
+
+# ---- version visible on phones (header title is hidden there; the Log tab footer carries it) ----
+with app(viewport=(412, 915)) as page:
+    page.click('nav button[data-p="log"]'); page.wait_for_timeout(400)
+    ver = page.inner_text("#verNote")
+    check("v6.0" in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")

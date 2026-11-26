@@ -28,6 +28,11 @@ with app() as page:
     page.click('nav button[data-p="drive"]'); page.wait_for_timeout(500)   # let the tab fade-in finish
     page.screenshot(path=str(OUT / "connect-asleep.png"))
     check(page.evaluate("document.getElementById('status').scrollWidth <= document.getElementById('status').clientWidth"), "header status text not truncated")
+    page.click("#asleep"); page.wait_for_timeout(100)
+    check(not page.is_visible("#asleep"), "tap dismisses the asleep message")
+    page.click("#btnConnect")
+    page.wait_for_selector("#asleep.show", timeout=20000)       # still asleep: message comes back
+    check(True, "still asleep -> message shown again on the next failed Connect")
     page.evaluate("__mock.asleep = false")
     page.click("#btnConnect")
     page.wait_for_function("document.getElementById('status').textContent.includes('Connected')", timeout=20000)
