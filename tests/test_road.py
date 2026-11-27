@@ -11,10 +11,7 @@ def dbs(page): return page.evaluate("indexedDB.databases().then(l => l.map(d => 
 GPS = {"permission": "granted"}
 PERM = ["accelerometer", "gyroscope"]
 
-# ---------- motion access denied (Chrome asks via DeviceMotionEvent.requestPermission): the setting stays off ----------
-with app(motion=True, gps=GPS) as page:
-    page.click('nav button[data-p="car"]'); page.click("#btnRoad"); page.wait_for_timeout(500)
-    check(page.evaluate("RR.on") is False and "off" in page.inner_text("#btnRoad") and page.evaluate("localStorage.getItem('kobd_roadMap')") is None, "motion permission denied: Road mapping stays off, nothing saved")
+# ---------- motion access denied: the setting stays ON (v6.1.7), see test_v617.py ----------
 
 # ---------- OFF (default): no listener, no rows, no database ----------
 with app(motion=True, gps=GPS, permissions=PERM) as page:
@@ -86,7 +83,7 @@ with app(motion=True, gps=GPS, permissions=PERM) as page:
     check(any("GPS locations" in d for d in dialogs), "confirmation says the export contains your GPS locations")
     csv = next(e for e in ex if e["name"].endswith(".csv")); js = json.loads(next(e for e in ex if e["name"].endswith(".json"))["text"])
     lines = csv["text"].strip().split("\n")
-    check(lines[0].startswith("trip,t,lat,lon,acc,speed,rpm,n,vRms,vPp,jerkMax,rollRms,pitchRms,yawRms,gx,gy,gz") and len(lines) == 61, f"per-trip CSV: header + 60 rows ({len(lines)} lines), files {names[-2:]}")
+    check(lines[0].startswith("trip,t,lat,lon,acc,speed,rpm,n,vRms,vPp,jerkMax,rollRms,pitchRms,yawRms,gx,gy,gz,touched") and len(lines) == 61, f"per-trip CSV: header + 60 rows ({len(lines)} lines), files {names[-2:]}")
     check(js["warning"] == "Contains GPS locations" and len(js["trips"]) == 1 and len(js["trips"][0]["rows"]) == 60 and js["trips"][0]["rows"][0]["lat"] == 51.5, "per-trip JSON: warning field, 60 rows with GPS")
     page.click("#btnRoadAll"); page.wait_for_timeout(800)
     allj = json.loads([e for e in page.evaluate("window.__exports") if e["name"].endswith(".json")][-1]["text"])

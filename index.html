@@ -476,12 +476,12 @@ const KobdSim = SIM ? (function(){
   /* ...except hot coolant: with no room for the small row it takes Trip average's place */
   @container drive (max-aspect-ratio:1/1) and (max-height:414px){ #p_drive.big.hotc #t_mpgTrip{display:none!important} #p_drive.big.hotc #t_coolant{display:flex!important;grid-row:3;grid-column:1/-1} }
   @container drive (min-aspect-ratio:1/1) and (max-height:210px){ #p_drive.big.hotc #t_mpgTrip{display:none!important} #p_drive.big.hotc #t_coolant{display:flex!important;grid-row:1;grid-column:18/span 7} }
-  #btnBig{position:absolute;top:8px;right:8px;z-index:3;width:38px;height:38px;min-width:0;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--card2);opacity:.9}
+  #btnBig{position:absolute;bottom:8px;right:8px;z-index:3;width:38px;height:38px;min-width:0;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--card2);opacity:.9}
   #btnBig svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #p_drive.big #btnBig{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
   /* speed-limit roundel (OSM, may be wrong): informational only, sits inside the speed tile's right edge */
   #t_speed{position:relative}
-  .limit{--d:min(24cqw,40cqh);position:absolute;right:14px;top:50%;transform:translateY(-50%);display:none;flex-direction:column;align-items:flex-end;gap:4px;width:var(--d);pointer-events:none}
+  .limit{--d:min(24cqw,34cqh);position:absolute;right:14px;top:10px;transform:none;display:none;flex-direction:column;align-items:flex-end;gap:4px;width:var(--d);pointer-events:none}
   .limit.show{display:flex}
   .limit .rnd{width:var(--d);height:var(--d);box-sizing:border-box;border-radius:50%;background:#fff;border:calc(var(--d)*.12) solid #cc1117;color:#000;font-weight:800;display:grid;place-items:center;font-size:calc(var(--d)*.42);line-height:1;letter-spacing:-.04em}
   .limit .rnd.nsl{border-color:#222;color:transparent;background:linear-gradient(135deg,#fff 44%,#111 44%,#111 56%,#fff 56%)}
@@ -504,7 +504,7 @@ const KobdSim = SIM ? (function(){
   #mapInfo{flex:none;padding:4px max(var(--gap),env(safe-area-inset-left)) 8px;font-size:var(--fs-s);min-height:2.7em;color:var(--txt)}
   @media (orientation:landscape) and (max-height:500px){ #mapBar{padding:4px 10px} #mapLegend{padding-top:2px} #mapInfo{min-height:0;padding-bottom:4px} }
   /* version row: pinned at the top of the Log tab (visible in the installed app at every size; 5 taps on it unlock the developer menu) */
-  .rtrip{padding:6px 0;border-bottom:1px solid var(--line);font-size:var(--fs-s)} .rtrip button{min-width:0;padding:5px 10px;margin-left:6px;font-size:var(--fs-s)}
+  .rtrip{padding:6px 0;border-bottom:1px solid var(--line);font-size:var(--fs-s)} .rtrip button{min-width:0;min-height:40px;padding:5px 10px;margin:3px 0 3px 6px;font-size:var(--fs-s)}
   #verRow{position:sticky;top:calc(-1*var(--gap));z-index:3;margin:calc(-1*var(--gap)) calc(-1*max(var(--gap),env(safe-area-inset-right))) var(--gap) calc(-1*max(var(--gap),env(safe-area-inset-left)));padding:calc(var(--gap) + 2px) max(var(--gap),env(safe-area-inset-right)) 8px max(var(--gap),env(safe-area-inset-left));background:var(--bg);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:var(--fs-s);-webkit-user-select:none;user-select:none}
   #verNote{font-weight:700;color:var(--txt);cursor:default}
   /* update toast */
@@ -640,9 +640,9 @@ const KobdSim = SIM ? (function(){
     <div id="fillCard" role="status"><span id="fillTxt"></span><input id="fillLit" type="number" inputmode="decimal" step="0.1" min="1" max="80" placeholder="Litres from receipt?" aria-label="Litres from receipt"><button class="pri" id="fillSave">Save</button><button id="fillSkip">Skip</button></div>
     <div id="emptyHint">Ignition on → Connect · or tap Demo</div>
     <div class="drive">
-    <button id="btnBig" aria-label="Big mode" aria-pressed="false" title="Big mode: hide labels, maximise numbers"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <div class="tile hero na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div>
-        <div class="limit" id="limit" role="img"><div class="rnd"></div><small>OSM limit (may be wrong)</small></div></div>
+        <div class="limit" id="limit" role="img"><div class="rnd"></div><small>OSM limit (may be wrong)</small></div>
+      <button id="btnBig" aria-label="Big mode" aria-pressed="false" title="Big mode: hide labels, maximise numbers"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>
       <div class="fuelhero" id="fuelhero">
         <div class="tile na" id="t_range"><div class="lab">Range</div><div class="val"><span class="num">–</span><span class="unit">mi</span><span class="basis">@40 mpg</span></div></div>
         <div class="tile na" id="t_remain"><div class="lab">Estimated remaining</div><div class="sec"><span id="remL">–</span><span id="remCost">–</span></div></div>
@@ -1051,7 +1051,7 @@ function saveTrip(){
   const h = store.get('trips', []);
   const m = styleMetrics();
   h.push({date:new Date(trip.t0).toISOString(), miles:tripKm()/KM_PER_MILE, litres:trip.L, mpg:mpg(tripKm(),trip.L), idleL:st.idleL,
-          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, stops:tripStops.map(x=>({...x})), rr:RR.curId(),
+          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, stops:tripStops.map(x=>({...x})), rr:RR.curId(), end:tripPausedAt || Date.now(),
           ...(tg.km >= 0.3 ? {gpsKm:+tg.km.toFixed(2), ascent:Math.round(tg.ascent), descent:Math.round(tg.descent), route:simplifyRoute(tg.route, 15, 150).map(p=>[+p[0].toFixed(5), +p[1].toFixed(5), p[2]==null ? null : Math.round(p[2])]),
             spdErr:tg.spdN >= 10 ? +((tg.spdObd/tg.spdGps - 1)*100).toFixed(1) : null, overPct:tg.limS >= 20 ? +(tg.overS/tg.limS*100).toFixed(0) : null} : {}),
           wx:tg.wx || null, hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
@@ -1369,7 +1369,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.1.6';
+const APP_VERSION = '6.1.7';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1720,6 +1720,7 @@ let openFailed = false;
 async function connect(){
   if (!supported){ alert('Web Serial not available here, see the note at the top.'); return; }
   showAsleep(false); openFailed = false;
+  if (RR.on) RR.askPerm().catch(()=>{});                // inside the Connect tap (a user gesture): connecting also grants motion access, no extra tap
   try{
     setStatus('Choose the adapter…','busy');
     port = SIM ? await KobdSim.requestPort() : await navigator.serial.requestPort({ allowedBluetoothServiceClassIds:[SPP], filters:[{bluetoothServiceClassId:SPP}] });
@@ -2235,10 +2236,43 @@ setBig(!!store.get('big', false));
 
 // ---------- road data recorder (v6.1.5): Stage 3 groundwork, records only, no analysis ----------
 const RR = (function(){
-  const ROW_COLS = ['t','lat','lon','acc','speed','rpm','n','vRms','vPp','jerkMax','rollRms','pitchRms','yawRms','gx','gy','gz'];
+  const ROW_COLS = ['t','lat','lon','acc','speed','rpm','n','vRms','vPp','jerkMax','rollRms','pitchRms','yawRms','gx','gy','gz','touched'];
+  const SCHEMA = 2;                                             // export schema number (v6.1.7: units + touched + mountNoise)
+  const UNITS = {t: 'ms since 1970 (start of the second)', lat: 'deg', lon: 'deg', acc: 'm (GPS accuracy)', speed: 'km/h (OBD)', rpm: 'rpm', n: 'samples in the second', vRms: 'm/s²', vPp: 'm/s²', jerkMax: 'm/s³',
+    rollRms: 'deg/s', pitchRms: 'deg/s', yawRms: 'deg/s', gx: 'm/s²', gy: 'm/s²', gz: 'm/s²', touched: 'boolean: tap/key within ±2 s, or page hidden/blurred/screen off (exclude from roughness + pothole scoring)'};
+  const NOISE_UNITS = {dtMs: 'ms since the previous sample', ax: 'm/s²', ay: 'm/s²', az: 'm/s²', alpha: 'deg/s', beta: 'deg/s', gamma: 'deg/s', rpm: 'rpm', coolant: '°C'};
   const ROW_BYTES = 190;                                        // storage estimate per 1 Hz row
-  const o = { CAP: 50e6, noiseMs: 33000, noiseSettle: 3, on: !!store.get('roadMap', false), listening: false, warn: '', sensorSeen: false, startedAt: 0, rowsThisTrip: 0, noiseDone: false };
+  const o = { CAP: 50e6, noiseMs: 33000, noiseSettle: 3, on: !!store.get('roadMap', false), listening: false, perm: 'ok', warn: '', sensorSeen: false, startedAt: 0, rowsThisTrip: 0, noiseDone: false };
   let db = null, cur = null, acc = null, gv = null, prev = null, idleSecs = 0, nz = null;
+  // ---- v6.1.7: the saved setting is the user's INTENT. Nothing but their own tap on the button may change it: a permission problem only changes `o.perm`. ----
+  const needsPerm = () => typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function';
+  const cookieOn = () => { try{ return /(?:^|; )kobd_roadMap=1/.test(document.cookie); }catch{ return false; } };
+  const mirror = on => { try{ document.cookie = 'kobd_roadMap=' + (on ? 1 : 0) + '; max-age=31536000; path=/; SameSite=Lax'; }catch{} };   // backup in case the browser drops localStorage (not personal data)
+  function setIntent(on, why){
+    o.on = !!on; store.set('roadMap', o.on); if (!SIM) mirror(o.on);
+    const l = store.get('roadMapLog', []); l.push({t: new Date().toISOString(), on: o.on, why}); store.set('roadMapLog', l.slice(-6)); try{ log('Road mapping ' + (o.on ? 'on' : 'off') + ' (' + why + ')'); }catch{}
+    if (o.on){ try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch{} }   // ask the browser not to evict the saved setting / road data
+  }
+  if (!o.on && !SIM && store.get('roadMap', null) === null && cookieOn()){ setIntent(true, 'restored: the saved setting was missing but the backup said on'); }
+  // Ask for motion access (iOS/Chrome-with-prompt need a user gesture: called from the Connect and Road-mapping taps). Never changes the saved setting.
+  async function askPerm(){
+    if (!needsPerm()){ o.perm = 'ok'; return true; }
+    try{ const r = await DeviceMotionEvent.requestPermission(); o.perm = r === 'granted' ? 'ok' : 'waiting'; }catch{ o.perm = 'waiting'; }
+    sync(); view(); return o.perm === 'ok';
+  }
+  let retryT = null;
+  const retryLater = () => { if (retryT) return; retryT = setTimeout(() => { retryT = null; if (o.on && running && !demo && (o.perm !== 'ok' || !o.sensorSeen)){ o.startedAt = Date.now(); if (o.listening){ window.removeEventListener('devicemotion', onMotion); window.addEventListener('devicemotion', onMotion); } askPerm().catch(()=>{}); retryLater(); } }, 15000); };
+  // ---- v6.1.7: "touched" flag. Taps/keys flag rows within ±2 s of that second; hidden/blurred/screen-off flags only the seconds it lasted. ----
+  const tapSecs = new Set(), offSecs = new Set(); let blurred = false;
+  const secNow = () => Math.floor(Date.now() / 1000);
+  function markTap(){
+    const s0 = secNow(); tapSecs.add(s0); for (const s of tapSecs) if (s < s0 - 10) tapSecs.delete(s);
+    if (cur) for (const r of cur.chunk) if (Math.abs(r.t / 1000 - s0) <= 2) r.touched = true;       // the last rows are still unflushed (flush keeps 3 back)
+  }
+  function markOff(){ const s0 = secNow(); offSecs.add(s0); for (const s of offSecs) if (s < s0 - 10) offSecs.delete(s); }
+  const isTouched = sec => { for (let d = -2; d <= 2; d++) if (tapSecs.has(sec + d)) return true; return offSecs.has(sec); };
+  for (const ev of ['pointerdown', 'touchstart', 'keydown']) window.addEventListener(ev, markTap, {capture: true, passive: true});
+  document.addEventListener('visibilitychange', markOff); window.addEventListener('blur', () => { blurred = true; markOff(); }); window.addEventListener('focus', () => { blurred = false; markOff(); }); window.addEventListener('pagehide', markOff);
   const ST = (n, m) => { const d = db; return d.transaction(n, m || 'readonly'); };
   const open = () => db ? Promise.resolve(db) : new Promise((res, rej) => {
     const r = indexedDB.open(KP + 'road', 1);
@@ -2249,6 +2283,15 @@ const RR = (function(){
   const trips = async () => { await open(); return (await rq(ST('trips').objectStore('trips').getAll())).sort((a, b) => a.start - b.start); };
   const noises = async () => { await open(); return rq(ST('noise').objectStore('noise').getAll()); };
   async function rows(id){ await open(); const out = []; for (const c of await rq(ST('chunks').objectStore('chunks').getAll(IDBKeyRange.bound([id, 0], [id, 1e9])))) out.push(...c.rows); return out; }
+  // v6.1.7: rows of one (possibly merged) main-log trip, found by TIME OVERLAP, never by id: engine restarts inside the 10 min merge window or a reconnect make several road segments per trip.
+  async function rowsFor(start, end, rrId){
+    const all = (await trips()).sort((a, b) => a.start - b.start); let pick;
+    if (end) pick = all.filter(t => t.end >= start - 5000 && t.start <= end + 5000 || t.id === rrId);
+    else { pick = all.filter(t => t.id === rrId || (t.end >= start - 5000 && t.start <= start + 120000));        // old trips have no end time: follow the merge rule
+      if (pick.length){ let last = Math.max(...pick.map(t => t.end)); for (const t of all) if (!pick.includes(t) && t.start >= last && t.start - last <= TRIP_MERGE_MS){ pick.push(t); last = t.end; } } }
+    const out = []; for (const t of pick.sort((a, b) => a.start - b.start)) out.push(...await rows(t.id));
+    out.sort((a, b) => a.t - b.t); return out.filter((r, i) => !i || r.t !== out[i - 1].t);
+  }
   async function totalBytes(){ const t = await trips(), n = await noises(); return t.reduce((a, x) => a + (x.bytes || 0), 0) + n.reduce((a, x) => a + (x.bytes || 0), 0); }
   async function del(id){ await open(); const t = ST(['trips', 'chunks'], 'readwrite'); t.objectStore('trips').delete(id); t.objectStore('chunks').delete(IDBKeyRange.bound([id, 0], [id, 1e9])); await done(t); }
   async function evict(){                                                                  // oldest trip first, never the one being recorded
@@ -2258,7 +2301,7 @@ const RR = (function(){
   }
   async function flush(force){
     if (!cur || (!cur.chunk.length && !force)) return;
-    const chunk = cur.chunk; cur.chunk = []; await open();
+    const keep = force ? 0 : 3, chunk = cur.chunk.slice(0, cur.chunk.length - keep); cur.chunk = cur.chunk.slice(chunk.length); await open();
     store.set('roadHas', true); const t = ST(['trips', 'chunks'], 'readwrite');
     if (chunk.length) t.objectStore('chunks').put({tripId: cur.id, i: cur.ci++, rows: chunk});
     cur.n += chunk.length; cur.bytes = cur.n * ROW_BYTES;
@@ -2273,7 +2316,7 @@ const RR = (function(){
     const row = {t: a.sec * 1000, lat: fx ? +fx.lat.toFixed(6) : null, lon: fx ? +fx.lon.toFixed(6) : null, acc: fx ? Math.round(fx.acc) : null,
       speed: latest.speed != null ? +latest.speed.toFixed(1) : null, rpm: latest.rpm != null ? Math.round(latest.rpm) : null, n: a.n,
       vRms: f(Math.sqrt(a.s2 / a.n)), vPp: f(a.max - a.min), jerkMax: f(a.jerk), rollRms: f(Math.sqrt(a.rg / a.n)), pitchRms: f(Math.sqrt(a.rb / a.n)), yawRms: f(Math.sqrt(a.ra / a.n)),
-      gx: f(a.gx / a.n), gy: f(a.gy / a.n), gz: f(a.gz / a.n)};
+      gx: f(a.gx / a.n), gy: f(a.gy / a.n), gz: f(a.gz / a.n), touched: isTouched(a.sec) || a.off};
     // mount-noise sample: 30 s of raw motion at engine idle while stationary (for later calibration)
     const still = (latest.speed || 0) < 2 && (latest.rpm || 0) >= 300 && (latest.rpm || 0) < 1500;
     idleSecs = still ? idleSecs + 1 : 0; if (!still) nz = null;
@@ -2281,7 +2324,7 @@ const RR = (function(){
     if (!recording()) return;
     if (!cur){ cur = {id: Date.now(), start: row.t, end: row.t, n: 0, bytes: 0, chunk: [], ci: 0}; o.rowsThisTrip = 0; o.noiseDone = false; }
     cur.chunk.push(row); cur.end = row.t; o.rowsThisTrip++;
-    if (cur.chunk.length >= 30) flush().catch(()=>{}); else view();
+    if (cur.chunk.length >= 33) flush().catch(()=>{}); else view();
   }
   async function saveNoise(z){
     store.set('roadHas', true); await open(); const bytes = z.data.length * 9, id = Date.now();
@@ -2294,7 +2337,8 @@ const RR = (function(){
     const now = Date.now(), sec = Math.floor(now / 1000), pn = performance.now();
     if (!gv) gv = [a.x, a.y, a.z]; else { gv[0] += (a.x - gv[0]) * 0.01; gv[1] += (a.y - gv[1]) * 0.01; gv[2] += (a.z - gv[2]) * 0.01; }
     const g = Math.hypot(...gv) || 9.81, az = (a.x * gv[0] + a.y * gv[1] + a.z * gv[2]) / g - g;       // vertical-ish: along gravity, gravity removed
-    if (!acc || acc.sec !== sec){ if (acc) second(); acc = {sec, n: 0, s2: 0, min: 1e9, max: -1e9, jerk: 0, ra: 0, rb: 0, rg: 0, gx: 0, gy: 0, gz: 0}; }
+    if (!acc || acc.sec !== sec){ if (acc) second(); acc = {sec, off: false, n: 0, s2: 0, min: 1e9, max: -1e9, jerk: 0, ra: 0, rb: 0, rg: 0, gx: 0, gy: 0, gz: 0}; }
+    if (document.hidden || blurred) acc.off = true;
     acc.n++; acc.s2 += az * az; acc.min = Math.min(acc.min, az); acc.max = Math.max(acc.max, az); acc.gx += a.x; acc.gy += a.y; acc.gz += a.z;
     if (r){ acc.ra += (r.alpha || 0) ** 2; acc.rb += (r.beta || 0) ** 2; acc.rg += (r.gamma || 0) ** 2; }
     if (prev){ const dt = (pn - prev.t) / 1000; if (dt > 0.0005) acc.jerk = Math.max(acc.jerk, Math.abs(az - prev.az) / dt); } prev = {t: pn, az};
@@ -2302,7 +2346,9 @@ const RR = (function(){
       if (now - nz.t0 >= o.noiseMs){ const z = nz; nz = null; saveNoise(z).catch(()=>{}); } }
   }
   function sync(){
-    const want = o.on && running && !demo && typeof window !== 'undefined';
+    const want = o.on && running && !demo && typeof window !== 'undefined' && (o.perm === 'ok' || !needsPerm());
+    if (o.on && running && !demo && (!want || !o.sensorSeen)) retryLater();
+    const w = o.on && running && !demo && !want; if (w !== !!o.waitShown){ o.waitShown = w; setTimeout(view, 0); }
     let changed = false;
     if (want && !o.listening){ window.addEventListener('devicemotion', onMotion); o.listening = true; o.startedAt = Date.now(); o.sensorSeen = false; changed = true; }
     if (!want && o.listening){ window.removeEventListener('devicemotion', onMotion); o.listening = false; acc = null; prev = null; nz = null; flush(true).catch(()=>{}); changed = true; }
@@ -2315,7 +2361,9 @@ const RR = (function(){
     if (!confirm('This export contains your GPS locations (where you drove, and when). Only share it with people you trust.\n\nContinue?')) return false;
     const all = await trips(), pick = all.filter(t => !ids || ids.includes(t.id)), data = [];
     for (const t of pick) data.push({...t, rows: await rows(t.id)});
-    const json = JSON.stringify({app: 'Kodiaq OBD', version: APP_VERSION, exported: new Date().toISOString(), warning: 'Contains GPS locations', cols: ROW_COLS, trips: data, mountNoise: ids ? [] : await noises()});
+    const allN = (await noises()).sort((a, b) => a.id - b.id), ptIds = new Set(pick.map(t => t.id));
+    const mn = !ids ? allN : (() => { const l = allN.filter(n => ptIds.has(n.tripId)); return l.length ? l : allN.slice(-1); })();   // per trip: the ones linked to it, else the newest
+    const json = JSON.stringify({app: 'Kodiaq OBD', schema: SCHEMA, version: APP_VERSION, exported: new Date().toISOString(), warning: 'Contains GPS locations', cols: ROW_COLS, units: UNITS, mountNoiseUnits: NOISE_UNITS, trips: data, mountNoise: mn});
     const base = 'kodiaq-road-' + (label || 'all'), files = [[base + '.csv', csvOf(data), 'text/csv'], [base + '.json', json, 'application/json']];
     (window.__exports = window.__exports || []).push(...files.map(f => ({name: f[0], text: f[1]})));
     const fl = files.map(f => new File([f[1]], f[0], {type: f[2]}));
@@ -2327,28 +2375,27 @@ const RR = (function(){
     const info = $('roadInfo'); if (!info) return;
     $('btnRoad').textContent = 'Road mapping: ' + (o.on ? 'on' : 'off');
     let st; if (!o.on) st = 'Off: nothing is recorded.'; else if (!running || demo) st = 'On: records while connected to the car (not in Demo).';
-      else if (!o.sensorSeen && Date.now() - o.startedAt > 5000) st = 'On, but no motion-sensor data arrived (this browser/device has none, or access is blocked).';
+      else if (o.perm !== 'ok' || (!o.sensorSeen && Date.now() - o.startedAt > 5000)) st = 'Road mapping: waiting for motion permission (the setting stays on; retrying, or tap Connect / the button again).';
       else st = tripOpen ? 'Recording: ' + o.rowsThisTrip + ' rows this trip.' : 'On: waiting for the engine to start a trip.';
     let list = [], noise = [], tot = 0; if (o.on || store.get('roadHas', false)){ try{ list = await trips(); noise = await noises(); tot = await totalBytes(); }catch{} }   // never create the database while the feature has not been used
     info.innerHTML = '<div>' + st + '</div><div>Stored: ' + list.length + ' trip' + (list.length === 1 ? '' : 's') + ', ' + (tot / 1e6).toFixed(2) + ' MB of ' + Math.round(o.CAP / 1e6) + ' MB · mount-noise samples: ' + noise.length + '</div>' + (o.warn ? '<div style="color:var(--warn)">⚠ ' + o.warn + '</div>' : '');
     $('btnRoadAll').disabled = !list.length; $('btnRoadDel').disabled = !list.length && !noise.length;
-    $('roadTrips').innerHTML = list.slice(-8).reverse().map(t => { const d = new Date(t.start); return '<div class="rtrip" data-id="'+t.id+'">' + d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + ' · ' + Math.round((t.end - t.start) / 60000) + ' min · ' + t.n + ' rows <button class="rexp" data-id="'+t.id+'">Export</button> <button class="rdel" data-id="'+t.id+'">Delete</button></div>'; }).join('');
+    $('roadTrips').innerHTML = list.slice(-8).reverse().map(t => { const d = new Date(t.start); return '<div class="rtrip" data-id="'+t.id+'">' + d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + ' · ' + Math.round((t.end - t.start) / 60000) + ' min · ' + t.n + ' rows <button class="rmap" data-id="'+t.id+'">View on map</button> <button class="rexp" data-id="'+t.id+'">Export</button> <button class="rdel" data-id="'+t.id+'">Delete</button></div>'; }).join('');
   }
-  const api = Object.assign(o, { sync, endTrip, flush, trips, rows, noises, totalBytes, del, exportTrips, view, csvOf, ROW_COLS, curId: () => cur ? cur.id : null,
+  const api = Object.assign(o, { sync, askPerm, setIntent, SCHEMA, UNITS, endTrip, flush, trips, rows, noises, totalBytes, del, exportTrips, view, csvOf, rowsFor, ROW_COLS, curId: () => cur ? cur.id : null,
     clearAll: async () => { await open(); const t = ST(['trips', 'chunks', 'noise'], 'readwrite'); t.objectStore('trips').clear(); t.objectStore('chunks').clear(); t.objectStore('noise').clear(); await done(t); o.warn = ''; view(); },
     put: async (id, start, rowsArr) => { store.set('roadHas', true); await open(); const t = ST(['trips', 'chunks'], 'readwrite'); t.objectStore('chunks').put({tripId: id, i: 0, rows: rowsArr}); t.objectStore('trips').put({id, start, end: rowsArr.length ? rowsArr[rowsArr.length-1].t : start, n: rowsArr.length, bytes: rowsArr.length * ROW_BYTES, rr: 1}); await done(t); await evict(); view(); } });
   return api;
 })();
 $('btnRoad').onclick = async ()=>{
-  if (!RR.on){
-    try{ if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission){ const r = await DeviceMotionEvent.requestPermission(); if (r !== 'granted'){ setStatusHint('Motion access was not allowed'); return; } } }catch{}
-  }
-  RR.on = !RR.on; store.set('roadMap', RR.on); if (!RR.on) RR.endTrip(); RR.sync(); RR.view();
+  const on = !RR.on; RR.setIntent(on, 'you tapped the button');           // saved first: a denied permission must not undo it
+  if (on) await RR.askPerm(); else { RR.endTrip(); RR.perm = 'ok'; }
+  RR.sync(); RR.view();
 };
 $('btnRoadAll').onclick = ()=>RR.exportTrips(null, 'all');
 $('btnRoadDel').onclick = async ()=>{ if (!confirm('Delete ALL recorded road data on this device?')) return; await RR.clearAll(); };
 $('roadTrips').addEventListener('click', async e=>{ const b = e.target.closest('button'); if (!b) return; const id = +b.dataset.id;
-  if (b.classList.contains('rexp')) RR.exportTrips([id], String(id)); else if (b.classList.contains('rdel') && confirm('Delete this trip\'s road data?')){ await RR.del(id); RR.view(); } });
+  if (b.classList.contains('rmap')) MapUI.openRoad(id); else if (b.classList.contains('rexp')) RR.exportTrips([id], String(id)); else if (b.classList.contains('rdel') && confirm('Delete this trip\'s road data?')){ await RR.del(id); RR.view(); } });
 RR.view(); if (RR.on) RR.sync();
 
 // ---------- trip map (v6.1.6): vendored Leaflet (vendor/), OSM tiles when online, route outline offline. Raw roughness = uncalibrated accel RMS. ----------
@@ -2362,7 +2409,7 @@ const MapUI = (function(){
   function loadLeaflet(){
     if (window.L) return Promise.resolve(); if (loading) return loading;
     loading = new Promise((res, rej) => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'vendor/leaflet.css'; document.head.appendChild(l);
-      const sc = document.createElement('script'); sc.src = 'vendor/leaflet.js'; sc.onload = res; sc.onerror = () => { loading = null; rej(new Error('map library not available')); }; document.head.appendChild(sc); });
+      const sc = document.createElement('script'); sc.src = 'vendor/leaflet.js'; const fail = () => { loading = null; sc.remove(); l.remove(); rej(new Error('map library not available')); }; sc.onload = () => window.L ? res() : fail(); sc.onerror = fail; l.onerror = () => { if (!window.L) setTimeout(() => { if (!window.L) fail(); }, 0); }; setTimeout(() => { if (!window.L) fail(); }, 15000); document.head.appendChild(sc); });
     return loading;
   }
   const clearMap = () => { if (map){ try{ map.remove(); }catch{} } map = tiles = hi = null; group = []; $('mapBox').className = ''; $('mapBox').innerHTML = ''; };
@@ -2395,7 +2442,7 @@ const MapUI = (function(){
   function info(p){
     if (!p){ $('mapInfo').textContent = offline ? NOTE_OFFLINE : 'Tap near the route for details.'; return; }
     const tm = p.t ? new Date(p.t).toLocaleTimeString('en-GB') : '–', f = (v, d, u) => v == null ? '–' : v.toFixed(d) + u;
-    $('mapInfo').textContent = outline ? 'Route point (no recorded values).' : `${tm} · ${f(p.mph, 0, ' mph')} · accel RMS ${f(p.vRms, 2, ' m/s²')} · p-p ${f(p.vPp, 2, '')} · jerk ${f(p.jerkMax, 1, '')} · ${p.rpm != null ? Math.round(p.rpm) + ' rpm' : '– rpm'} · GPS ${p.acc != null ? '±' + p.acc + ' m' : '–'}`;
+    $('mapInfo').textContent = outline ? 'Route point (no recorded values).' : `${tm} · ${f(p.mph, 0, ' mph')} · accel RMS ${f(p.vRms, 2, ' m/s²')} · p-p ${f(p.vPp, 2, '')} · jerk ${f(p.jerkMax, 1, '')} · ${p.rpm != null ? Math.round(p.rpm) + ' rpm' : '– rpm'} · GPS ${p.acc != null ? '±' + p.acc + ' m' : '–'} · touched ${p.touched == null ? '–' : p.touched ? 'yes' : 'no'}`;
   }
   function tap(e){
     let best = null, bd = 1e9; const c = map.latLngToContainerPoint(e.latlng);
@@ -2405,13 +2452,14 @@ const MapUI = (function(){
   }
   async function open(tr){
     const my = ++gen; $('mapView').classList.add('show'); offline = false; mode = 'speed'; outline = false;
-    const d = new Date(tr.date); $('mapTitle').textContent = d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'}) + ' ' + d.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) + ' · ' + tr.miles.toFixed(1) + ' mi';
+    const d = new Date(tr.date); $('mapTitle').textContent = d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'}) + ' ' + d.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) + (tr.miles != null ? ' · ' + tr.miles.toFixed(1) + ' mi' : tr.live ? ' · still running' : '');
     $('mapInfo').textContent = 'Loading…'; $('mapLegend').innerHTML = '';
-    let rows = []; try{ if (tr.rr) rows = (await RR.rows(tr.rr)).filter(r => r.lat != null && r.lon != null); }catch{}
+    let rows = []; try{ if (tr.live) await RR.flush(true); rows = (await RR.rowsFor(tr.start != null ? tr.start : Date.parse(tr.date), tr.end, tr.rr)).filter(r => r.lat != null && r.lon != null); }catch(e){ msg('Could not read the road data (' + e.message + ').'); return; }
     if (rows.length < 2 && tr.route && tr.route.length > 1){ outline = true; rows = tr.route.map(q => ({lat: q[0], lon: q[1]})); }
     if (my !== gen) return;
-    if (rows.length < 2){ msg('This trip has no GPS route to show.'); return; }
+    if (rows.length < 2){ msg(tr.live ? 'Trip still running: not enough GPS points recorded yet. Try again in a minute.' : 'This trip has no GPS route to show.'); return; }
     pts = rows.map(r => ({...r, mph: r.speed != null ? r.speed / KM_PER_MILE : null}));
+    window.__mapPts = pts.length;
     try{ await loadLeaflet(); }catch(e){ msg('The map library could not be loaded (' + e.message + ').'); return; }
     if (my !== gen) return;
     clearMap(); tileOk = tileErr = 0;
@@ -2428,7 +2476,7 @@ const MapUI = (function(){
   const find = d => store.get('trips', []).find(t => t.date === d);
   const pick = e => { const r = e.target.closest('.trip'); if (!r) return; const t = find(r.dataset.d); if (t) open(t); };
   $('trips').addEventListener('click', pick); $('trips').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pick(e); } });
-  return {open, close, get map(){ return map; }, get offline(){ return offline; }};
+  return {open, close, openRoad: async id => { const t = (await RR.trips()).find(x => x.id === id); if (!t) return; await open({date: new Date(t.start).toISOString(), start: t.start, end: t.end, rr: t.id, live: t.id === RR.curId() && running}); }, get map(){ return map; }, get offline(){ return offline; }};
 })();
 
 // ---------- developer menu + simulator (tap the version 5 times) ----------

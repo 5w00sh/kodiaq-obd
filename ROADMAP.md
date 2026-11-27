@@ -27,6 +27,9 @@
 ## v6.1.6 – Raw road overlay map (uncalibrated) — DONE
 - Vendored Leaflet 1.9.4 (`vendor/`, no CDN). OSM tiles when online with attribution (light use: visible tiles only, no preloading, never cached); offline fallback draws the route outline on a blank map. Style tab → tap a trip → map of its route. Layers: speed / roughness (raw accel RMS, green→red, labelled "uncalibrated – speed bumps not excluded"). Tap a point: time, speed, raw values. Fits and stays readable at 360x760 and 412x915.
 
+## v6.1.7 – Auto-start, touched flag, export + map fixes — DONE
+- Road mapping/GPS stay on across restarts and start on Connect (motion permission requested in the tap; a denial keeps the setting on and shows "waiting for motion permission"). `touched` per 1 Hz row (taps +-2 s, hidden/blur). Export schema 2 with units + mountNoise. Fullscreen button moved off the speed-limit roundel. Map finds road rows by time overlap; "View on map" in the Car tab.
+
 ## Stage 3 – Motion sensors + Road condition map (v6.2.0)
 - Note: Stage 3 REPROCESSES the rows recorded since v6.1.5 (1 Hz aggregates in IndexedDB + the mount-noise samples): calibration, eIRI, pothole detection, speed-bump exclusion and the council report all run over stored data. It builds on the v6.1.6 map (same Leaflet view; segments coloured by eIRI instead of raw accel RMS).
 - Per-device setting "Road mapping" default OFF; only on for the Pixel 10 Pro XL in a Spigen Cryomax MagFit Qi2 vent mount (Peltier fan). Devices are independent, no syncing.
@@ -37,6 +40,7 @@
 - Exclude speed bumps: OBD slowdown <20 mph before + re-acceleration after; long symmetric waveform vs short sharp drop; gyro roll (both wheels = little roll); OSM traffic_calming tags nearby; consistent signature each pass; user can tag "speed bump – ignore" (remembered by location). Bumps = own layer, excluded from scores and reports.
 - Map overlay: OSM street map, switchable layers (roughness, potholes, bumps, later mpg/speed limits), tap segment for details; offline fallback draws routes on blank canvas. Vendor any map library (no CDNs).
 - "Report to council": builds report (date, lat/lon, severity, eIRI, map link), opens share sheet/email with CSV + GeoJSON. User reviews and sends; never auto-send. GeoJSON export for Google My Maps.
+- **Stage 3 must skip rows with `touched = true`** (screen taps / page hidden) in roughness (eIRI) and pothole scoring.
 - Mock motion + GPS in tests (smooth road, rough road, pothole, speed bump, loose mount).
 
 ## Stage 4 – Data
