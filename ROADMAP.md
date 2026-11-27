@@ -7,7 +7,7 @@
 - Merge engine restarts within 10 min into the same trip (log the stop).
 - Ignore ATRV samples within 10 s of engine start for learning/alerts; record them as "crank voltage" (battery-health data).
 
-## Stage 2 – Phone GPS (v6.1.0, branch stage2-wip – rebase onto main)
+## Stage 2 – Phone GPS (v6.1.0) — DONE (rebased onto v6.0.5, shipped)
 - As per original brief: GPS vs OBD speed (speedo error), altitude + smoothed gradient (feature in expected-mpg model), simplified route per trip (on-device), OSM maxspeed via Overpass cached ("OSM limit, may be wrong", roundel + % over limit), Open-Meteo weather at trip start (temp, wind, rain) into the mpg model.
 - Degrade gracefully with no GPS / no data; GPS only while connected; keep kobd_loc fresh for auto theme; range tile + speed-limit roundel must fit at 360x760; mock GPS (hill, limit change, dropout) in tests.
 - Commit locally after each sub-feature.

@@ -52,6 +52,13 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - Demo never logs samples (`record()` returns early, CSV disabled); a real connect and Stop-after-Demo purge any `demo`-tagged samples.
 - Battery: `trackStart()` notes the rpm rise from ~0; `handleVolt(v)` is the single place ATRV samples go. Within 10 s of start (`CRANK_WINDOW_MS`) a sample is a cranking dip: kept in `kobd_crank` (lowest per start) and shown in the Car tab battery panel as "Crank voltage", never on the tile, in `latest.volt`, in pidStats or alerts. `sweep()` ignores ATRV and PID 42 during the window. Mock: `__mock.crankUntil`, `__mock.oilRaw`.
 
+## v6.1.0 Stage 2: phone GPS (optional, degrades silently)
+- GPS only while connected or in Demo (`gpsStart()/gpsStop()`), foreground only; high-accuracy watch while moving, released after `GPS_IDLE_MS` stationary (occasional low-accuracy look, Car tab says "resting"). Permission asked once (`kobd_gpsAsked`); the Car tab switch asks again. Approximate-only fixes (Wi-Fi tablet) give weather + theme (`kobd_loc` kept fresh) but no speed/hills/limits.
+- Car tab "Phone GPS": GPS speed, OBD-vs-GPS error %, altitude, smoothed gradient. Trips save gpsKm, ascent/descent, a simplified route (<=150 pts, rounded), spdErr, overPct and weather `wx`; climb/wind/rain are extra (nullable) features of the expected-mpg model (old trips still train).
+- OSM speed limit via Overpass (tile cache `kobd_osm_*`, ~100 m rounded queries, never the exact position), shown as a roundel inside the speed tile (`#limit`, `limitUi(v)`; -1 = national limit) captioned "OSM limit (may be wrong)"; Style tab "Over OSM limit". Weather: Open-Meteo once at trip start, cached `kobd_wx`. `sw.js` ignores cross-origin requests.
+- Layout: the roundel must never overlap the speed digits or leave the speed tile at any tested viewport (test_layouts + test_readability "speed limit"/"big + limit" states).
+- Tests: `test_gps.py`, `test_gps_degrade.py`, `test_model.py`; `common.app(gps=..., net=...)` stubs the network (Overpass/weather), `overpass_fixture()`, `WEATHER`; mock GPS in `mock-adapter.js` (`window.__MOCK_GPS`, `__mock.gps`: hill, limit change, dropout, coarse, permission states).
+
 ## Fuel & range (v6.0.2)
 - Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
 - Auto fill-up: level +10 points (vs last session, or vs the lowest of the last 10 min) -> `kobd_fillPending`; the Drive card appears only after 8 s stationary. A fill to >= 92 % with a receipt feeds `recordFill()` (pump calibration); smaller top-ups are only logged. Demo never writes fuel data.
