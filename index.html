@@ -489,6 +489,9 @@ const KobdSim = SIM ? (function(){
   :root[data-theme=night] .limit .rnd{filter:brightness(.82)}
   /* narrow speed tile (landscape phones): no room beside the digits, so a small roundel sits in the top-right corner and the caption drops (aria-label + Car tab keep the 'may be wrong' note) */
   @container (max-width:300px){ .limit{--d:min(40px,26cqh);top:6px;right:8px;transform:none} .limit small{display:none} }
+  /* over the OSM limit (steady, no flashing, no sound): amber above the limit, red above limit + tolerance. Inset ring + a faint tint; sizes untouched so the readability floors hold */
+  #t_speed.ovw{box-shadow:inset 0 0 0 3px var(--warn);background:color-mix(in srgb,var(--warn) 9%,var(--card))}
+  #t_speed.ovr{box-shadow:inset 0 0 0 5px var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--card))}
   /* version row: pinned at the top of the Log tab (visible in the installed app at every size; 5 taps on it unlock the developer menu) */
   #verRow{position:sticky;top:calc(-1*var(--gap));z-index:3;margin:calc(-1*var(--gap)) calc(-1*max(var(--gap),env(safe-area-inset-right))) var(--gap) calc(-1*max(var(--gap),env(safe-area-inset-left)));padding:calc(var(--gap) + 2px) max(var(--gap),env(safe-area-inset-right)) 8px max(var(--gap),env(safe-area-inset-left));background:var(--bg);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:var(--fs-s);-webkit-user-select:none;user-select:none}
   #verNote{font-weight:700;color:var(--txt);cursor:default}
@@ -695,7 +698,8 @@ const KobdSim = SIM ? (function(){
           <div class="tile na" id="t_grade"><div class="lab">Gradient</div><div class="val">–<span class="unit">%</span></div></div>
         </div>
         <div id="gpsInfo" class="note"></div>
-        <div class="row" style="margin-top:10px"><button id="btnGps">GPS: on</button></div>
+        <p class="note">Over-limit warning: the Speed tile turns amber above the OSM limit and red above limit + tolerance (steady, no sound). Only with a known limit and a good GPS fix (±20 m).</p>
+        <div class="row" style="margin-top:10px"><button id="btnGps">GPS: on</button><button id="btnTol">Over-limit warning: +2 mph</button></div>
         <p class="note">GPS runs only while connected or in Demo, in the foreground, and rests when you're stationary. It is optional: nothing from the car depends on it. "OBD vs GPS" is how far the car's speed reading is from true GPS speed. Weather (Open-Meteo) and speed limits (OpenStreetMap) are best-effort look-ups, cached, and sent with a rounded position (weather ~1 km, limits by map tile). Your route is stored on this phone only.</p>
       </section>
       <section>
@@ -965,7 +969,7 @@ function renderFuel(speedKmh){
   show('mpgInst', inst==null ? null : Math.min(inst, 199));
   show('mpgTrip', mpg(tripKm(), trip.L), 1);
   show('miles', tripKm()/KM_PER_MILE, 1);
-  renderRange(); fillCardTick(); bigSwap();
+  renderRange(); fillCardTick(); bigSwap(); overUpdate();
   show('litres', trip.L, 2);
   showCost(trip.L, tripKm());
   latest.mpgTrip = mpg(tripKm(), trip.L); latest.lph = lph;
@@ -1335,7 +1339,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.1.3';
+const APP_VERSION = '6.1.4';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1875,7 +1879,7 @@ function renderIdle(){
   const last = tripsCache.length ? tripsCache[tripsCache.length-1] : null;
   show('mpgTrip', last && last.mpg ? last.mpg : null, 1); setStale('t_mpgTrip', !!(last && last.mpg));
   showCost(last ? last.litres : 0, last ? last.miles*KM_PER_MILE : 0); setStale('t_cost', !!(last && last.litres > 0));
-  renderRange(); bigSwap();
+  renderRange(); bigSwap(); overUpdate();
 }
 // Big mode: coolant is hidden unless it is hot (> 105 C); then it takes fuel flow's place until it cools below 103
 function bigSwap(){
@@ -2107,6 +2111,28 @@ function applyLimit(r){
   const need = r===null ? 8 : (G.limit==null ? 1 : 2);                             // a change needs matching fixes: no flicker at junctions
   if (G.limN >= need && G.limit !== r){ G.limit = r; limitUi(r); }
 }
+// ---- over-limit highlight on the Speed tile (OBD speed vs the OSM limit) ----
+const OVER_ACC = 20, TOL_LABEL = {p2:'+2 mph', pct:'10% + 2 mph', exact:'exact'};
+const overTol = (lim, mode) => mode === 'exact' ? 0 : mode === 'pct' ? lim*0.10 + 2 : 2;
+// state machine. red needs > limit+tol continuously for 2 s and clears once >= 1 mph under that line; amber (above the limit) clears >= 1 mph under the limit
+function overStep(st, v, lim, mode, now){
+  const redAt = lim + overTol(lim, mode); let state = st.state, since = st.since;
+  if (state === 'over'){ if (v <= redAt - 1) state = v > lim - 1 ? 'amber' : ''; since = null; }
+  else if (v > redAt){ if (since == null) since = now; state = now - since >= 2000 ? 'over' : 'amber'; }
+  else { since = null; state = state === 'amber' ? (v > lim - 1 ? 'amber' : '') : (v > lim ? 'amber' : ''); }
+  return {state, since};
+}
+let ovSt = {state:'', since:null};
+function overUpdate(){
+  const el = $('t_speed'); if (!el) return;
+  const f = G.fix, lim = G.limit, good = running && G.active && G.state === 'ok' && f && f.acc <= OVER_ACC && Date.now() - f.t < 8000 && lim > 0 && latest.speed != null;
+  ovSt = good ? overStep(ovSt, latest.speed/KM_PER_MILE, lim, store.get('overTol','p2'), Date.now()) : {state:'', since:null};
+  const st = window.__forceOver || ovSt.state;                                                   // __forceOver: layout/readability test hook
+  el.classList.toggle('ovr', st === 'over'); el.classList.toggle('ovw', st === 'amber');
+}
+function tolUi(){ $('btnTol').textContent = 'Over-limit warning: ' + TOL_LABEL[store.get('overTol','p2')]; }
+$('btnTol').onclick = ()=>{ const k = Object.keys(TOL_LABEL), i = k.indexOf(store.get('overTol','p2')); store.set('overTol', k[(i+1) % k.length]); tolUi(); ovSt = {state:'', since:null}; };
+tolUi();
 function limitUi(v){
   const el = $('limit'), r = el.querySelector('.rnd');
   el.classList.toggle('show', v!=null);

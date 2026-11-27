@@ -1,5 +1,5 @@
 // Offline cache: network-first, falls back to cache (so it opens with no signal in the car)
-const C = 'kodiaq-obd-v17';
+const C = 'kodiaq-obd-v18';
 const FILES = ['./', './index.html', './manifest.json', './icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(FILES)).catch(()=>{})); });   // no skipWaiting here: the page offers the update and sends SKIP_WAITING when the user taps
 self.addEventListener('message', e => { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); });

@@ -81,9 +81,11 @@ JS = """(big) => {
 STATES = [
     ("normal",            "ds = 0; window.__forceFill = false; window.__forceHot = false", False, False),
     ("speed limit",       "limitUi(30)", False, False),
-    ("regen banner",      "ds = 13", False, True),
+    ("over limit (red)",   "limitUi(30); window.__forceOver = 'over'", False, False),
+    ("over limit (amber)", "limitUi(30); window.__forceOver = 'amber'", False, False),
+    ("regen banner",      "ds = 13; window.__forceOver = 'over'", False, True),
     ("regen + fill card", "ds = 13; window.__forceFill = true", False, True),
-    ("hot coolant",       "ds = 0; window.__forceFill = false; window.__forceHot = true", False, False),
+    ("hot coolant",       "ds = 0; window.__forceFill = false; window.__forceHot = true; window.__forceOver = null", False, False),
     ("hot + regen + fill","ds = 13; window.__forceFill = true; window.__forceHot = true", False, True),
     ("big + regen",       "ds = 13; window.__forceFill = false; window.__forceHot = false; if (!document.getElementById('p_drive').classList.contains('big')) document.getElementById('btnBig').click()", True, True),
     ("big",               "ds = 0", True, False),

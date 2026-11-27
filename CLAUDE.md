@@ -72,7 +72,11 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 ## v6.1.3 pre-start battery reading
 - Connect with the engine off starts `pre` (in `loop()` via `preStartTick()`): several ATRV reads over ~5 s (>= 3), then the engine must stay < 300 rpm for 10 s MORE before the MEDIAN is recorded (`recordBattery`). Status shows "Hold off starting for 10 s for a battery reading" meanwhile. If the engine starts first (rpm >= 300 or `startAt` set), one extra immediate read is taken and the lowest sample, if < 12.0 V, is kept as crank voltage (`recordCrank`); otherwise "no resting reading kept". Engine already running at connect: no measurement. Stop clears it.
 - Real time per case ~16 s: tests wait for `kobd_batt` instead of 1.5 s. The simulator delays every scenario's engine start by `S.lead` (35 s, or 1.6 x rate) so scenarios can finish the measurement (`asleep` excepted).
+- `tests/test_overlimit.py`: overStep state machine (all 3 tolerances, timers, hysteresis), end-to-end with mock GPS (accuracy 25 m vs 8 m, unknown limit), setting.
 - `tests/test_v613.py`: median with an outlier, start right after Connect (crank, no resting reading), start inside the 10 s hold, engine already running, Stop while measuring.
+
+## v6.1.4 over-limit highlight
+- `overStep(state, mph, limit, mode, now)` (pure) + `overUpdate()` (called from `renderFuel`/`renderIdle`): `#t_speed` gets `.ovw` (amber, > limit) or `.ovr` (red, > limit + tol for 2 s; clears 1 mph under limit + tol; amber clears 1 mph under the limit). Needs `running`, `G.state==='ok'`, `G.fix.acc <= 20`, a fresh fix and `G.limit > 0` (national/unknown = never). Tolerance `kobd_overTol` p2 | pct | exact, button `#btnTol` (Car tab). Inset ring + tint only (no layout change, no animation); hook `window.__forceOver` for layout tests. `tests/test_overlimit.py` + readability states.
 
 ## Fuel & range (v6.0.2)
 - Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
