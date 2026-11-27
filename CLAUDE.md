@@ -39,6 +39,13 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - `#emptyHint` ("Ignition on → Connect · or tap Demo") is its own flex row above the grid, only while `body:not(.live)`.
 - Hot coolant (> 105 C, clears <= 103) is visible in every mode/viewport: normal-mode tiers show it in the small row; where they would drop it, it takes Trip average's place (grid-row/column override). Big mode: replaces fuel flow, or Trip average when the small row is dropped. The hot coolant also hides the fill card.
 
+## v6.0.5 (first real health scan)
+- Long mode-01 PIDs (69 70 71 78 7A 7F 83 85 88 8B 8C 8F 9C A7) come back multi-frame (ISO-TP): a 3-hex-digit length line, then `0:` `1:` frames, per ECU. `pidReply(lines, pid)` (used by `readPid` and `rawPid`) runs `groupMsgs` and takes the first message starting `41<pid>` (engine ECU first). Never parse mode-01 replies line by line again: it silently broke DPF status (8B), EGT (78) and DPF dP (7A).
+- Coolant "not at normal temp" only after >= 15 min running (PID 1F, else the trip clock) AND >= 5 miles above 30 mph (`trip.fastKm`); otherwise an OK line "still warming up". 75 C after 8 min of idling at 4 C outside is normal. > 105 C still says hot.
+- Experimental decoders (`DEC`, labelled "(experimental)", unverified formulas from real raw values): 9B `3f 80 2c 3a` = AdBlue level D*100/255 (tank temp C-40) -> Car tab tile `#t_adblue`; A4 gear = byte A; 77 charge-air B-40 / C-40; 67 coolant sensor B-40; A2 mg/stroke = (256A+B)/32. The scan lists them with their raw bytes.
+- Scan verdict has an `info` level. Engine already running at scan time -> "Connect before starting the engine for a battery reading" (no fake battery-before-start). The scan re-reads rpm/speed/coolant first so the state is right even before the loop's first pass.
+- Mock (`tests/mock-adapter.js`): the long PIDs answer multi-frame from the engine ECU then again from the gearbox ECU (filler 0xEE, must never win); 8B/78/7A carry real structure (`__mock.dpfTrigPct`, `dpfRegen`, `egtC`); 9B/A4/77/67/A2 use the real raw values.
+
 ## Fuel & range (v6.0.2)
 - Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
 - Auto fill-up: level +10 points (vs last session, or vs the lowest of the last 10 min) -> `kobd_fillPending`; the Drive card appears only after 8 s stationary. A fill to >= 92 % with a receipt feeds `recordFill()` (pump calibration); smaller top-ups are only logged. Demo never writes fuel data.
@@ -59,6 +66,7 @@ Never push without OK. Everything stays on-device: no logos/images from the web,
 - `tests/test_theme_splash.py`: splash (text, once/day, tap skip, reduced motion), auto/day/night themes (sunrise/sunset from a permitted fix, scheme fallback, toggle, contrast), Big mode.
 - `tests/test_fuel.py`: fuel left (PID 2F x tank), range (last ~50 mi / this trip / 45 mpg, all-time), low-fuel colours, smoothing, Big-mode coolant/range swap, auto fill-up detection + receipt prompt + calibration.
 - `tests/test_readability.py`: the hard readability floors above, 11 viewports x 8 states (incl. hot coolant) x 2 themes.
+- `tests/test_isotp.py`: ISO-TP parser (spaces/no spaces, two ECUs), all 14 long PIDs through the mock, DPF/EGT/dP decode, health scan (nothing silent), experimental decoders, AdBlue tile, coolant rule, battery-reading message.
 - `tests/test_v604.py`: visualViewport sizing, idle/last-trip/last-known after Stop + Demo, hint row, hot-coolant hysteresis in every mode.
 - `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ -> on; pre-start battery, auto health scan, trip saved, new trip. ~1.5 min (real timers).
 - `tests/run.sh` runs all; `FAST=1 tests/run.sh` skips the engine cycle.

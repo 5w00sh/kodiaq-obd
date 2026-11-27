@@ -395,6 +395,7 @@
           <div class="tile na" id="t_volt"><div class="lab">Battery</div><div class="val">–<span class="unit">V</span></div></div>
           <div class="tile na" id="t_litres"><div class="lab">Trip fuel</div><div class="val">–<span class="unit">L</span></div></div>
           <div class="tile na" id="t_odo"><div class="lab">Odometer</div><div class="val">–<span class="unit">mi</span></div></div>
+          <div class="tile na" id="t_adblue"><div class="lab">AdBlue (experimental)</div><div class="val">–<span class="unit">%</span></div></div>
           <div class="tile na" id="t_amb"><div class="lab">Outside</div><div class="val">–<span class="unit">°C</span></div></div>
         </div>
       </section>
@@ -559,10 +560,16 @@ const PIDS = {
 };
 const unsupported = new Set(), pidFails = {};
 
+// Mode-01 reply -> data bytes after "41 <pid>", or null. Long PIDs (69 70 71 78 7A 7F 83 85 88 8B 8C 8F 9C A7 ...) arrive multi-frame (ISO-TP):
+// "00B" then "0:41 8B ..." "1:..." per ECU; groupMsgs glues the frames, then the first message that starts 41<pid> wins (engine ECU answers first).
+function pidReply(lines, pid){
+  const head = '41'+pid.toUpperCase(), hit = groupMsgs(lines).find(m=>m.startsWith(head));
+  return hit ? { hit, bytes: (hit.slice(4).match(/[0-9A-F]{2}/g)||[]).map(h=>parseInt(h,16)) } : null;
+}
 async function readPid(name){
   const {pid,f} = PIDS[name];
   const lines = await cmd('01'+pid);
-  const hit = lines.map(l=>l.replace(/\s/g,'')).find(l=>l.toUpperCase().startsWith('41'+pid));
+  const hit = pidReply(lines, pid);
   if (!hit){
     // only give up after 6 misses in a row WHILE the engine is running (one glitch used to kill throttle/intake air)
     if ((latest.rpm||0) > 300) pidFails[name] = (pidFails[name]||0) + 1;   // misses only count with the engine running
@@ -571,8 +578,7 @@ async function readPid(name){
     return null;
   }
   pidFails[name] = 0;
-  const bytes = hit.slice(4).match(/../g).map(h=>parseInt(h,16));
-  return f(bytes);
+  return f(hit.bytes);
 }
 async function readVolt(){
   const r = await cmd('ATRV'); const m = r.join('').match(/([\d.]+)V/i);
@@ -614,9 +620,8 @@ async function detectSupport(){
   $('fuelMethod').textContent = 'Fuel source: '+txt+'. Calibration ×'+cal.toFixed(3)+'.';
 }
 async function rawPid(pid){
-  const lines = await cmd('01'+pid);
-  const hit = lines.map(l=>l.replace(/\s/g,'')).find(l=>l.toUpperCase().startsWith('41'+pid));
-  return hit ? hit.slice(4).match(/../g).map(h=>parseInt(h,16)) : null;
+  const r = pidReply(await cmd('01'+pid), pid);
+  return r && r.bytes.length ? r.bytes : null;
 }
 async function readFuelLph(){
   if (fuelMethod==='rate5E'){ const b = await rawPid('5E'); return b ? ((b[0]*256)+b[1])/20 : null; }
@@ -637,7 +642,7 @@ function integrate(speedKmh, lphRaw){
   const dt = (now-lastInt)/3600000; lastInt = now;    // hours
   if (dt <= 0 || dt > 0.003) return 0;                // skip gaps > ~10s (e.g. while reading codes)
   const dkm = (speedKmh||0)*dt, dLraw = (lphRaw||0)*dt;
-  trip.km += dkm; trip.L += dLraw*cal; if ((speedKmh||0) < 2) trip.idleL += dLraw*cal;
+  trip.km += dkm; if ((speedKmh||0) > 30*KM_PER_MILE) trip.fastKm = (trip.fastKm||0) + dkm; trip.L += dLraw*cal; if ((speedKmh||0) < 2) trip.idleL += dLraw*cal;
   sinceFill.km += dkm; sinceFill.L += dLraw;
   return dt;
 }
@@ -992,6 +997,7 @@ async function loop(){
         if (!running) break;
         dpfUpdate(dtH); renderFuel(latest.speed||0); renderStyle(); renderDpf(); if (tick%10===0) renderVsExpected();
         if (tick%20===0 && supportedPids.has('A6')){ const b = await rawPid('A6'); if (b && b.length>=4){ odoKm = (((b[0]<<24)>>>0) + (b[1]<<16) + (b[2]<<8) + b[3])/10; if (trip.odo0==null) trip.odo0 = odoKm; show('odo', odoKm/KM_PER_MILE); } }
+        if (tick%25===3 && supportedPids.has('9B')){ const b = await rawPid('9B'); if (!running) break; show('adblue', b && b.length>3 ? b[3]*100/255 : null); }
         if (tick%10===0){ const v = await readVolt(); if (!running) break; latest.volt=v; show('volt',v); }
         engineWatch();
         if (!scanning && tick > 20 && Date.now() - lastSweep > 10*60*1000 && (carState()==='idle' || carState()==='drive')) await learningCheck();
@@ -1010,7 +1016,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.0.4';
+const APP_VERSION = '6.0.5';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>b[0]-40], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1027,7 +1033,13 @@ const DEC = {
   '5E':['Fuel rate','L/h',b=>(b[0]*256+b[1])/20], '61':['Driver demand torque','%',b=>b[0]-125], '62':['Actual torque','%',b=>b[0]-125],
   '63':['Reference torque','Nm',b=>b[0]*256+b[1]], '78':['Exhaust temp (max)','°C',b=>parse78([0x0F&b[0],...b.slice(1)])],
   '7A':['DPF differential pressure','kPa',b=>(b[0]&1) ? (b[1]*256+b[2])/100 : null], '8B':['DPF regen trigger','%',b=>b.length>2 ? b[2]*100/255 : null],
-  '8E':['Engine friction torque','%',b=>b[0]-125], '9D':['Engine fuel rate','g/s',b=>(b[0]*256+b[1])/50],
+  '8E':['Engine friction torque','%',b=>b[0]-125],
+  // experimental: decoded from real raw values of this car (v6.0.5), formulas unverified
+  '9B':['AdBlue (DEF) level (experimental)','%',b=>b.length>3 ? b[3]*100/255 : null, b=>b.length>2 ? `tank ${b[2]-40} °C` : null],
+  'A4':['Gear (experimental)','',b=>b.length ? b[0] : null],
+  '77':['Charge-air temp (experimental)','°C',b=>b.length>2 ? b[1]-40 : null, b=>b.length>2 ? `sensor 2 ${b[2]-40} °C` : null],
+  '67':['Coolant sensor 1 (experimental)','°C',b=>b.length>1 ? b[1]-40 : null],
+  'A2':['Fuel per stroke (experimental)','mg',b=>b.length>1 ? (b[0]*256+b[1])/32 : null], '9D':['Engine fuel rate','g/s',b=>(b[0]*256+b[1])/50],
   '9E':['Exhaust flow','kg/h',b=>(b[0]*256+b[1])/5], 'A6':['Odometer','km',b=>(((b[0]<<24)>>>0)+(b[1]<<16)+(b[2]<<8)+b[3])/10],
 };
 // which readings are stable enough to learn a "normal" for, per state
@@ -1080,7 +1092,9 @@ async function sweep(){
     let b = null; try{ b = await rawPid(pid); }catch{}
     if (!b){ out[pid] = {ok:false}; continue; }
     const d = DEC[pid]; let v = null; try{ v = d ? d[2](b) : null; }catch{}
-    out[pid] = {ok:true, raw:hex(b), v, label:d?d[0]:null, unit:d?d[1]:null};
+    let extra = null; try{ extra = d && d[3] ? d[3](b) : null; }catch{}
+    out[pid] = {ok:true, raw:hex(b), v, label:d?d[0]:null, unit:d?d[1]:null, extra};
+    if (pid==='9B' && v!=null) show('adblue', v);
   }
   const bv = await readVolt(); out.BATT = {ok:bv!=null, v:bv, label:'Battery (at adapter)', unit:'V'};
   // learning + anomalies + dropouts
@@ -1108,8 +1122,13 @@ function verdict(sc){
   if (dsc!=null) add(dsc < 300 ? 'warn':'ok', `Codes last cleared ${Math.round(dsc/1.609)} miles / ${wu??'?'} warm-ups ago` + (dsc < 300 ? ' (recent: worth knowing why)' : ''));
   const mil = val('21'); if (mil) add('warn', `Driven ${Math.round(mil/1.609)} miles with the warning light on (historic)`);
   const bv = sc.state==='off' ? val('BATT') : null; if (bv!=null) add(bv>=12.4?'ok':bv>=12.2?'warn':'bad', `Battery before start ${bv.toFixed(1)} V` + (bv<12.2?' (low: charge & test)':''));
+  if (sc.state!=='off') add('info', 'Connect before starting the engine for a battery reading (the resting voltage can only be read with the engine off)');
   const run = sc.state!=='off' ? val('BATT') : null; if (run!=null) add(run>=13.0?'ok':'warn', `Charging voltage ${run.toFixed(1)} V` + (run<13?' (low while running)':''));
-  const cool = val('05'); if (sc.state==='idle'||sc.state==='drive'){ if (cool!=null) add(cool>=80&&cool<=105?'ok':'warn', `Coolant ${cool.toFixed(0)} °C` + (cool<80?' (not at normal temp: thermostat?)':cool>105?' (hot)':'')); }
+  const cool = val('05'); if (sc.state==='idle'||sc.state==='drive'){ if (cool!=null){
+    // "not at normal temp" only after 15+ min running AND 5+ miles above 30 mph: 75 C after 8 min of mostly idling at 4 C outside is normal
+    const runS = val('1F') ?? (trip.t0 ? (Date.now()-trip.t0)/1000 : 0), fastMi = (trip.fastKm||0)/KM_PER_MILE, proven = runS >= 900 && fastMi >= 5;
+    if (cool < 80) add(proven ? 'warn' : 'ok', `Coolant ${cool.toFixed(0)} °C` + (proven ? ' (not at normal temp after '+Math.round(runS/60)+' min and '+fastMi.toFixed(0)+' mi above 30 mph: thermostat?)' : ` (still warming up: ${Math.round(runS/60)} min running, ${fastMi.toFixed(1)} mi above 30 mph; normal)`));
+    else add(cool>105 ? 'warn' : 'ok', `Coolant ${cool.toFixed(0)} °C` + (cool>105 ? ' (hot)' : '')); } }
   const trig = val('8B'); if (trig!=null) add(trig>=90?'warn':'ok', `DPF regen trigger ${trig.toFixed(0)}%` + (trig>=90?' (regen due: do a 20-min faster drive)':''));
   const fl = val('2F'); if (fl!=null) add(fl<15?'warn':'ok', `Fuel ${fl.toFixed(0)}%`);
   sc.sweep.flags.forEach(f=> add('warn', f.dropout ? `${f.label||f.key} stopped responding (was fine before)` : `${f.label||f.key} unusual: ${f.v.toFixed(2)} vs normal ${f.mean.toFixed(2)} ±${f.sd.toFixed(2)} (${f.state})`));
@@ -1128,7 +1147,7 @@ function diffScans(a, b){ // a = newer, b = older
   const lost = Object.keys(b.sweep.out).filter(k=>b.sweep.out[k].ok && a.sweep.out[k] && !a.sweep.out[k].ok && a.state!=='off'); if (lost.length) d.push('Sensors no longer answering: '+lost.join(' '));
   return d.length ? d : ['No changes worth noting'];
 }
-const LV = {ok:['✓','var(--ok)'], warn:['!','var(--warn)'], bad:['✕','var(--bad)']};
+const LV = {ok:['✓','var(--ok)'], warn:['!','var(--warn)'], bad:['✕','var(--bad)'], info:['i','var(--mut)']};
 function renderScans(){
   $('ver').textContent = 'v'+APP_VERSION; $('verNote').textContent = 'Kodiaq OBD v'+APP_VERSION;
   const L = $('scanList');
@@ -1146,7 +1165,7 @@ function showScan(sc){
   $('scanOut').innerHTML = `<div><b style="color:var(--txt)">${sc.vin?'VIN '+sc.vin+' · ':''}${sc.supported} sensors supported · ${Object.values(sc.sweep.out).filter(o=>o.ok).length} answered</b></div>`
     + sc.verdict.map(x=>`<div><b style="color:${LV[x.lvl][1]}">${LV[x.lvl][0]}</b> ${x.txt}</div>`).join('')
     + `<details style="margin-top:6px"><summary>All readings (${Object.keys(sc.sweep.out).length})</summary>`
-    + Object.entries(sc.sweep.out).map(([k,o])=>`<div>${k==='BATT'?'ATRV':'01'+k} ${o.label||''}: ${o.ok ? (o.v!=null ? (typeof o.v==='number'?o.v.toFixed(2):o.v)+' '+(o.unit||'') : '<span>raw '+o.raw+'</span>') : '<span style="color:var(--bad)">no reply</span>'}</div>`).join('') + '</details>';
+    + Object.entries(sc.sweep.out).map(([k,o])=>`<div>${k==='BATT'?'ATRV':'01'+k} ${o.label||''}: ${o.ok ? (o.v!=null ? (typeof o.v==='number'?o.v.toFixed(2):o.v)+' '+(o.unit||'')+(o.extra?' ('+o.extra+')':'')+' <span>raw '+o.raw+'</span>' : '<span>raw '+o.raw+'</span>') : '<span style="color:var(--bad)">no reply</span>'}</div>`).join('') + '</details>';
   $('btnReport').disabled = false;
 }
 function reportText(sc){
@@ -1155,7 +1174,7 @@ function reportText(sc){
     + (sc.vin?`VIN ${sc.vin}\n`:'') + `Protocol ${sc.proto} · ${sc.supported} PIDs supported\n\nSUMMARY\n`
     + sc.verdict.map(x=>`[${x.lvl.toUpperCase()}] ${x.txt}`).join('\n')
     + (sc.monitors?`\n\nREADINESS\nComplete: ${sc.monitors.ok.join(', ')||'none'}\nIncomplete: ${sc.monitors.inc.join(', ')||'none'}`:'')
-    + `\n\nREADINGS\n` + Object.entries(sc.sweep.out).map(([k,o])=>`${k==='BATT'?'ATRV':'01'+k}\t${o.label||''}\t${o.ok?(o.v!=null?(typeof o.v==='number'?o.v.toFixed(2):o.v)+' '+(o.unit||''):'raw '+o.raw):'no reply'}`).join('\n')
+    + `\n\nREADINGS\n` + Object.entries(sc.sweep.out).map(([k,o])=>`${k==='BATT'?'ATRV':'01'+k}\t${o.label||''}\t${o.ok?(o.v!=null?(typeof o.v==='number'?o.v.toFixed(2):o.v)+' '+(o.unit||'')+(o.extra?' ('+o.extra+')':'')+' [raw '+o.raw+']':'raw '+o.raw):'no reply'}`).join('\n')
     + (scans.length>1 ? `\n\nCHANGES VS PREVIOUS\n`+diffScans(sc, scans[scans.length-2]).join('\n') : '') + '\n';
 }
 async function shareReport(){
@@ -1169,11 +1188,12 @@ async function fullScan(auto){
   $('scanOut').innerHTML = 'Scanning every supported sensor… (10–20 s)'; log('Health scan started ('+(auto?'auto':'manual')+')');
   try{
     const proto = (await cmd('ATDPN')).join('').trim();
+    for (const n of ['rpm','speed','coolant']){ try{ const v = await readPid(n); if (v!=null) latest[n] = v; }catch{} }     // engine already running? decides state before anything else
     const mb = await rawPid('01'), monitors = decodeMonitors(mb);
     const codes = await codesNow(); const vin = await readVin(); const sw = await sweep();
     const sc = {v:APP_VERSION, date:new Date().toISOString(), auto:!!auto, state:sw.state, proto, vin, supported:supportedPids.size, monitors, codes, sweep:sw};
     sc.verdict = verdict(sc); scans.push(sc); scans = scans.slice(-40); store.set('scans', scans); store.set('lastFullScan', Date.now());
-    showScan(sc); renderScans(); log('Health scan saved: '+sc.verdict.filter(x=>x.lvl!=='ok').length+' item(s) to look at');
+    showScan(sc); renderScans(); log('Health scan saved: '+sc.verdict.filter(x=>x.lvl==='warn'||x.lvl==='bad').length+' item(s) to look at');
   }catch(e){ $('scanOut').textContent = 'Scan failed: '+e.message; log('Scan failed: '+e.message); }
   scanning = false; btn.disabled = !port; btn.textContent = 'Run full scan';
 }
@@ -1460,7 +1480,7 @@ function setStale(id, on){
   const t = $(id), l = t.querySelector('.lab'), txt = STALE[id][on ? 1 : 0];
   t.classList.toggle('stale', !!on); if (l.textContent !== txt) l.textContent = txt;
 }
-const LIVE_TILES = ['speed','rpm','mpgInst','lph','coolant','oil','load','throttle','iat','volt','amb','litres','egt'];
+const LIVE_TILES = ['speed','rpm','mpgInst','lph','coolant','oil','load','throttle','iat','volt','amb','litres','egt','adblue'];
 function renderIdle(){
   if (running) return;
   latest = {}; curLph = null; hotCool = false;

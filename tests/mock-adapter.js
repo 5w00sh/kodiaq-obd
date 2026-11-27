@@ -12,6 +12,9 @@
     fuelBurn: 0,            // % lost per minute while the engine runs (slow drift down)
     fuelSpike: 0,           // every 4th read adds +/- this many % (slosh / glitch) to test the smoothing
     coolantC: 90,           // PID 05
+    dpfTrigPct: 62,         // PID 8B byte C (soot %), multi-frame
+    dpfRegen: false,        // PID 8B status bit
+    egtC: 280,              // PID 78 sensor temps, multi-frame
     mode03: null,           // array of reply lines to override the default "4300" x2 (no codes)
     restVolt: 12.4,         // ATRV before the engine has ever run (ignition on, rested battery)
     openAttempts: 0,
@@ -31,6 +34,20 @@
   const SUP = [0x01,0x04,0x05,0x0C,0x0D,0x0F,0x10,0x11,0x1C,0x1F,0x20,0x21,0x2F,0x30,0x31,0x33,0x40,0x42,0x45,0x46,0x49,0x4A,0x4C,0x51,0x5C,0x5E,0x60,0x61,0x62,0x63,0x65,0x67,0x69,0x6B,0x6D,0x70,0x71,0x77,0x78,0x7A,0x7F,0x80,0x83,0x85,0x88,0x8B,0x8C,0x8E,0x8F,0x9B,0x9C,0x9D,0x9E,0xA0,0xA2,0xA4,0xA5,0xA6,0xA7];
   const SUP2 = [0x01, 0x04, 0x05, 0x0C, 0x0D, 0x20];
   const rawBytes = (n) => Array(n).fill(0);
+  // Long PIDs the real car answers multi-frame (ISO-TP) from the engine ECU, and again from the gearbox ECU. Data bytes after "41 <pid>".
+  const LONG = { 0x69: 7, 0x70: 10, 0x71: 6, 0x78: 9, 0x7A: 7, 0x7F: 13, 0x83: 5, 0x85: 10, 0x88: 13, 0x8B: 7, 0x8C: 16, 0x8F: 5, 0x9C: 9, 0xA7: 8 };
+  function longData(pid) {
+    const n = LONG[pid], d = Array.from({ length: n }, (_, i) => (pid + i * 7) & 0x7F);   // recognisable filler, never 0xEE
+    if (pid === 0x8B) { d[0] = 0x01; d[1] = mock.dpfRegen ? 1 : 0; d[2] = Math.round(mock.dpfTrigPct * 255 / 100); d[3] = 0x00; d[4] = 0x1E; d[5] = 0x00; d[6] = 0x0F; }
+    if (pid === 0x78) { d[0] = 0x0F; for (let i = 0; i < 4; i++) { const v = Math.round((mock.egtC + i * 5 + 40) * 10); d[1 + i * 2] = v >> 8; d[2 + i * 2] = v & 255; } }
+    if (pid === 0x7A) { d[0] = 0x01; d[1] = 0x01; d[2] = 0xC2; }       // 4.5 kPa
+    return d;
+  }
+  function isoTp(pid, data) {   // ATH0 + ATS0: "00B" length line, then "0:" (6 data bytes) and "1:".. (7 each)
+    const all = [0x41, pid, ...data], lines = [all.length.toString(16).toUpperCase().padStart(3, '0')];
+    for (let i = 0, n = 0; i < all.length; n++) { const take = n === 0 ? 6 : 7; lines.push((n & 15).toString(16).toUpperCase() + ':' + hexb(...all.slice(i, i + take))); i += take; }
+    return lines;
+  }
   function answer(c) {          // -> array of reply lines, one per answering ECU (ATH0, ATS0)
     c = c.trim().toUpperCase();
     if (c === 'ATZ') return ['ELM327 v2.2'];
@@ -45,7 +62,13 @@
         return SUP.some(p => p > pid && p <= pid + 0x20) ? [head + l1, head + l2] : [head + l1];
       }
       if (!SUP.includes(pid)) return ['NO DATA'];
+      if (LONG[pid]) return [...isoTp(pid, longData(pid)), ...isoTp(pid, Array(LONG[pid]).fill(0xEE))];   // engine ECU first, gearbox ECU's own multi-frame reply second
       switch (pid) {
+        case 0x9B: return [head + '3F802C3A'];            // verbatim from the real car: DEF temp C-40, level D*100/255
+        case 0xA4: return [head + '01000000'];            // gear
+        case 0x77: return [head + '0352590000'];          // charge-air temps B-40, C-40
+        case 0x67: return [head + '016F00'];              // coolant sensor B-40
+        case 0xA2: return [head + '00EC'];                // fuel mg/stroke /32
         case 0x04: return [head + hexb(mock.engine ? 90 : 0)];
         case 0x05: return [head + hexb(mock.coolantC + 40)];
         case 0x0C: return [head + hexb((rpm * 4) >> 8, (rpm * 4) & 255)];
