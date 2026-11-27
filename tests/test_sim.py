@@ -45,7 +45,7 @@ with app(viewport=(412, 915), mock=False) as page:
     wait(page, "(JSON.parse(localStorage.getItem('kobd_sim_trips')||'[]')).length >= 1", 90000)
     t = ls(page, "kobd_sim_trips")[0]
     check(t["miles"] > 2 and t["mpg"] and t["feat"]["amb"] is not None or t["miles"] > 2, f"school run: a trip was saved by the real trip code ({t['miles']:.1f} mi, {t['mpg']:.0f} mpg)")
-    check(ls(page, "kobd_sim_batt") and ls(page, "kobd_sim_crank") is not None, "school run: pre-start battery + crank dip recorded in the sim store")
+    b = ls(page, "kobd_sim_batt"); check(b and abs(b[-1]["v"] - 12.4) < .11, "school run: pre-start battery (median, engine stayed off 10 s) recorded in the sim store (crank sampling is covered by the weak-battery scenario at 2x)")
     check(len(ls(page, "kobd_sim_scans") or []) >= 1, "school run: the automatic health scan ran (ISO-TP, two ECUs) and was saved in the sim store")
     sc = ls(page, "kobd_sim_scans")[-1]["sweep"]["out"]
     check(sc["8B"]["ok"] and sc["78"]["ok"] and sc["7A"]["ok"], "scan decodes the long PIDs (8B / 78 / 7A) from the simulated car")
@@ -100,6 +100,7 @@ with app(viewport=(412, 915), mock=False) as page:
 
     # --- 9. weak battery ---
     go(page, "weak", 2, TRIP_MERGE_MS=30000)
+    wait(page, "JSON.parse(localStorage.getItem('kobd_sim_batt')||'[]').some(b => b.v < 12)", 60000)
     b = ls(page, "kobd_sim_batt"); check(b and abs(b[-1]["v"] - 11.8) < .11, f"weak battery: resting {b[-1]['v']} V recorded before start")
     check("low" in page.inner_text("#battInfo").lower() or "LOW" in page.inner_text("#battInfo"), "...and called low")
     wait(page, "crankLog.some(c => c.v < 9.5)", 60000); cr = [c for c in ls(page, "kobd_sim_crank") if c["v"] < 9.5]

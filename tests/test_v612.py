@@ -17,7 +17,7 @@ for w, h in VP:
         page.click('nav button[data-p="log"]'); page.wait_for_timeout(500)
         v = page.evaluate("APP_VERSION"); n = page.evaluate("""() => { const r = document.getElementById('verNote').getBoundingClientRect(), nav = document.querySelector('nav').getBoundingClientRect(), m = document.querySelector('main').getBoundingClientRect();
             return {txt: document.getElementById('verNote').textContent, top: r.top, bottom: r.bottom, navTop: nav.top, mainTop: m.top, w: r.width, vis: r.width > 0 && r.height > 0}; }""")
-        check(v == "6.1.2" and n["txt"] == "Kodiaq OBD v6.1.2" and n["vis"], f"{w}x{h}: version text visible: '{n['txt']}'")
+        check(n["txt"] == "Kodiaq OBD v" + v and n["vis"], f"{w}x{h}: version text visible: '{n['txt']}'")
         check(n["top"] >= n["mainTop"] - 1 and n["bottom"] <= n["navTop"] and n["top"] < n["mainTop"] + 30, f"{w}x{h}: it sits at the top of the Log tab (y {n['top']:.0f}), clear of the bottom nav (nav at {n['navTop']:.0f})")
         page.evaluate("document.getElementById('p_log').scrollTop = 99999"); page.wait_for_timeout(200)
         n2 = page.evaluate("(() => { const r = document.getElementById('verNote').getBoundingClientRect(), m = document.querySelector('main').getBoundingClientRect(); return r.top - m.top; })()")
