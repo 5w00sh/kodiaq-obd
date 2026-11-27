@@ -69,6 +69,11 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - `sw.js` no longer calls `skipWaiting()` on install. The page registers it (https, or `window.__KOBD_SW` in tests), and when a new worker is waiting and there is a controller it shows `#updToast` "Update available – tap to reload"; the tap posts `SKIP_WAITING`, `controllerchange` reloads. Never reloads by itself (a drive may be in progress). Bump the `sw.js` cache name with every `APP_VERSION`.
 - `tests/test_v612.py` (headless Chromium cannot emulate display-mode, so it fakes `matchMedia('(display-mode: standalone)')`; the app does not depend on display-mode) + a real service worker served with a changing `sw.js` for the toast.
 
+## v6.1.3 pre-start battery reading
+- Connect with the engine off starts `pre` (in `loop()` via `preStartTick()`): several ATRV reads over ~5 s (>= 3), then the engine must stay < 300 rpm for 10 s MORE before the MEDIAN is recorded (`recordBattery`). Status shows "Hold off starting for 10 s for a battery reading" meanwhile. If the engine starts first (rpm >= 300 or `startAt` set), one extra immediate read is taken and the lowest sample, if < 12.0 V, is kept as crank voltage (`recordCrank`); otherwise "no resting reading kept". Engine already running at connect: no measurement. Stop clears it.
+- Real time per case ~16 s: tests wait for `kobd_batt` instead of 1.5 s. The simulator delays every scenario's engine start by `S.lead` (35 s, or 1.6 x rate) so scenarios can finish the measurement (`asleep` excepted).
+- `tests/test_v613.py`: median with an outlier, start right after Connect (crank, no resting reading), start inside the 10 s hold, engine already running, Stop while measuring.
+
 ## Fuel & range (v6.0.2)
 - Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
 - Auto fill-up: level +10 points (vs last session, or vs the lowest of the last 10 min) -> `kobd_fillPending`; the Drive card appears only after 8 s stationary. A fill to >= 92 % with a receipt feeds `recordFill()` (pump calibration); smaller top-ups are only logged. Demo never writes fuel data.
@@ -92,6 +97,7 @@ Never push without OK. Everything stays on-device: no logos/images from the web,
 - `tests/test_isotp.py`: ISO-TP parser (spaces/no spaces, two ECUs), all 14 long PIDs through the mock, DPF/EGT/dP decode, health scan (nothing silent), experimental decoders, AdBlue tile, coolant rule, battery-reading message.
 - `tests/test_robust.py`: tempC / 0xFF / >150 C never shown or learned, short-stop trip merging (+ stops list), demo samples out of the CSV, cranking-dip voltage kept apart.
 - `tests/test_sim.py`: dev-menu unlock, sim isolation (real storage byte-identical), all 9 scenarios through the real pipeline at 60x, CSV replay with GPS, leaving simulation, bundled ELM core == tests mock.
+- `tests/test_v613.py`: pre-start battery measurement (median, hold-off message, crank reclassification).
 - `tests/test_v612.py`: version row visible/pinned at 360x760, 412x915, 360x690, 760x360; 5-tap unlock on it; update toast with a real service worker.
 - `tests/test_v604.py`: visualViewport sizing, idle/last-trip/last-known after Stop + Demo, hint row, hot-coolant hysteresis in every mode.
 - `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ (paused) -> on (same trip) -> off past the merge window (saved once, 2 stops) -> on (new trip); pre-start battery, auto health scan. ~1.5 min (real timers).

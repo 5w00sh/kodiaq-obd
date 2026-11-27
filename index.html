@@ -245,7 +245,7 @@ const KobdSim = SIM ? (function(){
   };
   const DEFAULTS = { engine: false, cruise: 0, coolantC: 90, fuelPct: 60, fuelBurn: 0, fuelSpike: 0, dpfRegen: false, dpfTrigPct: 62, egtC: 280, asleep: false, restVolt: 12.4,
                      crankUntil: 0, crankV: null, runV: null, crankLen: 2500, oilRaw: null, mode03: null, hasRun: false };
-  const S = { id: sessionStorage.getItem('kobd_simScen') || 'school', t0: null, running: false, rep: null, rows: null, info: '' };
+  const S = { id: sessionStorage.getItem('kobd_simScen') || 'school', t0: null, lead: 35, running: false, rep: null, rows: null, info: '' };
   function resetMock(){ Object.assign(mock, DEFAULTS); mock.ov = {}; mock.t0 = vnow(); }
 
   // ---- replay of a CSV log written by this app (t = ISO time; optional lat/lon; gpsKmh / alt used when present) ----
@@ -307,7 +307,7 @@ const KobdSim = SIM ? (function(){
     const now = vnow();
     if (S.running){
       if (S.rep && S.rows){ const r = rowAt(now); applyRow(r); G.cur = r; }
-      else if (SCEN[S.id]){ const t = (now - S.t0) / 1000; SCEN[S.id].step(t, mock); G.cur = null; }
+      else if (SCEN[S.id]){ const t = (now - S.t0) / 1000; SCEN[S.id].step(S.id === 'asleep' ? t : t - (S.lead - 10), mock); G.cur = null; }   // lead: the car sits with the engine off long enough for the pre-start battery reading
     }
     if (mock.engine && !prevEngine) mock.crankUntil = now + mock.crankLen;       // starter dip on every start
     prevEngine = mock.engine;
@@ -320,7 +320,7 @@ const KobdSim = SIM ? (function(){
   function start(){
     resetMock(); G.dist = 0; G.last = null; G.emit = 0; prevEngine = false;
     if (S.id === 'replay' && S.rows){ S.rep = true; S.running = true; setClock(S.rows[0].t); }
-    else { if (!SCEN[S.id]) S.id = 'school'; S.rep = null; SCEN[S.id].init(mock); S.t0 = vnow(); S.running = true; }
+    else { if (!SCEN[S.id]) S.id = 'school'; S.rep = null; SCEN[S.id].init(mock); S.t0 = vnow(); S.lead = Math.max(35, Math.round(rate * 1.6)); S.running = true; }
   }
   const sim = {
     scenarios: Object.fromEntries(Object.entries(SCEN).map(([k, v]) => [k, { name: v.name, desc: v.desc }])),
@@ -1315,6 +1315,7 @@ async function loop(){
         dpfUpdate(dtH); renderFuel(latest.speed||0); renderStyle(); renderDpf(); if (tick%10===0) renderVsExpected();
         if (tick%20===0 && supportedPids.has('A6')){ const b = await rawPid('A6'); if (b && b.length>=4){ odoKm = (((b[0]<<24)>>>0) + (b[1]<<16) + (b[2]<<8) + b[3])/10; if (trip.odo0==null) trip.odo0 = odoKm; show('odo', odoKm/KM_PER_MILE); } }
         trackStart();
+        if (pre){ await preStartTick(); if (!running) break; }
         if (tick%25===3 && supportedPids.has('9B')){ const b = await rawPid('9B'); if (!running) break; show('adblue', b && b.length>3 ? b[3]*100/255 : null); }
         if (tick%10===0){ const v = await readVolt(); if (!running) break; handleVolt(v); }
         engineWatch();
@@ -1334,7 +1335,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.1.2';
+const APP_VERSION = '6.1.3';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1564,6 +1565,28 @@ function engineWatch(){
 // ---------- battery health ----------
 let batt = store.get('batt', []), crankLog = store.get('crank', []), crankCur = null, startAt = null, engineWas = null;
 const CRANK_WINDOW_MS = 10000;
+// Pre-start battery reading (v6.1.3): several ATRV reads over ~5 s, accepted only if the engine then stays off for 10 s more. If it starts first,
+// pressing Start right after Connect would have put the cranking dip (10.0-10.6 V) in as "battery before start": it is crank voltage instead.
+let pre = null;
+async function preStartTick(){
+  const p = pre; if (!p) return; const now = Date.now(), started = (latest.rpm||0) >= 300 || (startAt != null && startAt >= p.t0);
+  if (started){ try{ const v = await readVolt(); if (v != null && v > 5 && v < 16) p.samples.push(v); }catch{} if (pre === p) finishPre(p, true); return; }     // one more read right now: the starter is still pulling the voltage down
+  if (p.endAt == null){
+    if (now - p.last >= 900){ p.last = now; const v = await readVolt(); if (!running || pre !== p) return; if (v != null && v > 5 && v < 16) p.samples.push(v); }
+    if (now - p.t0 >= 5000 && p.samples.length >= 3) p.endAt = now;
+  } else if (now - p.endAt >= 10000) finishPre(p, false);
+}
+function finishPre(p, started){
+  pre = null; const hold = $('status').textContent.includes('Hold off'), s = p.samples.slice().sort((a,b)=>a-b);
+  if (started){
+    if (s.length && s[0] < 12.0){ recordCrank(s[0]); log('Engine started within 10 s of the battery reading: '+s[0].toFixed(1)+' V kept as crank voltage, not a resting reading'); }
+    else log('Engine started within 10 s of the battery reading: no resting reading kept');
+    return;
+  }
+  const med = s.length % 2 ? s[s.length>>1] : (s[s.length/2-1] + s[s.length/2]) / 2;
+  recordBattery(med); log('Battery before start: '+med.toFixed(1)+' V (median of '+s.length+' reads over 5 s, engine stayed off for 10 s after)');
+  if (hold && med >= 12.2) setStatus('Connected','on');
+}
 // Engine start = rpm rising from ~0 (cranking) after it was off. Volts read inside the 10 s after that are the cranking dip.
 function trackStart(){
   const off = (latest.rpm||0) < 50;
@@ -1668,13 +1691,13 @@ async function connect(){
     writer = port.writable.getWriter(); reader = port.readable.getReader(); buf=''; fuelReset();
     await initElm();
     await detectSupport();
-    tripOpen = false; offSince = null; tripPausedAt = null; startAt = null; engineWas = null;
+    tripOpen = false; offSince = null; tripPausedAt = null; startAt = null; engineWas = null; pre = null;
     try{ const rb = await rawPid('0C'); const rpm0 = rb ? ((rb[0]*256)+rb[1])/4 : 0;
          engineWas = rpm0 < 50;
          const v0 = await readVolt(); latest.volt = v0; show('volt', v0);
-         if (rpm0 < 300){ recordBattery(v0); log('Battery before start: '+(v0!=null?v0.toFixed(1)+' V':'n/a')); }
-         else log('Engine already running, battery pre-start check skipped'); }catch(e){ log('Battery check failed: '+e.message); }
-    if (!(batt.length && batt[batt.length-1].v < 12.2 && Date.now()-new Date(batt[batt.length-1].date) < 60000)) setStatus('Connected','on');
+         if (rpm0 < 300){ pre = {t0: Date.now(), last: 0, samples: [], endAt: null}; log('Measuring the battery: hold off starting the engine for 10 s'); }
+         else { pre = null; log('Engine already running, battery pre-start check skipped'); } }catch(e){ log('Battery check failed: '+e.message); }
+    setStatus(pre ? 'Connected · Hold off starting for 10 s for a battery reading' : 'Connected','on');
     showAsleep(false); ui(true); running = true; demo = false; keepAwake(); gpsStart(); loop();
     if (Date.now() - store.get('lastFullScan', 0) > 20*3600*1000) setTimeout(()=>fullScan(true), 1500);
   }catch(e){ log('Connect failed: '+e.message);
@@ -1691,7 +1714,7 @@ async function stop(msg){
   if (demo && _ibBackup){ idleBase = _ibBackup; _ibBackup = null; }
   if (!demo) endTrip('stopped');
   dpf.active = false; dpf.tripRegen = false; renderDpf();
-  const wasDemo = demo; running = false; demo = false; gpsStop();
+  const wasDemo = demo; running = false; demo = false; pre = null; gpsStop();
   try{ reader?.releaseLock(); }catch{} try{ writer?.releaseLock(); }catch{}
   try{ await port?.close(); }catch{}
   port = reader = writer = null; ui(false); setStatus(msg||'Stopped'); wakeLock?.release?.();
