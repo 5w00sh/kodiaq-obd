@@ -1,5 +1,6 @@
 """Test 14 (v6.1.1): on-device simulator. Hidden dev menu (tap the version 5x), simulated car through the REAL code path, 9 scenarios, CSV replay at 60x
 with GPS, storage isolation (kobd_sim_*), leaving simulation, and parity of the bundled ELM327 core with tests/mock-adapter.js."""
+import tempfile; TMP = tempfile.mkdtemp()
 import json, math
 from common import app, check, OUT
 
@@ -117,11 +118,11 @@ with app(viewport=(412, 915), mock=False) as page:
         v = 0 if i < 20 else min(80, (i - 20) * 80 / 30) if i < 50 else 80 if i < 560 else max(0, 80 - (i - 560) * 2)
         km += v / 3600
         rows.append(f"2026-11-20T08:{i // 60:02d}:{i % 60:02d}Z,{v:.1f},{(800 + v * 26) if v or i < 590 else 0:.0f},20,40,{20 + i * 0.11:.1f},70,15,8,14.0,{0.75 + v * 0.05:.2f},,300,60,0,60,{v * 0.97:.2f},{50 + i * 0.05:.1f},{lat0 + km / 111.32:.6f},{lon0}")
-    open("/tmp/claude-1000/-home-swoosh-homelab/cb338e8a-9190-4715-a77e-b5b9e233df8b/scratchpad/replay.csv", "w").write("\n".join(rows) + "\n")
-    open("/tmp/claude-1000/-home-swoosh-homelab/cb338e8a-9190-4715-a77e-b5b9e233df8b/scratchpad/bad.csv", "w").write("a,b\n1,2\n")
-    page.set_input_files("#simFile", "/tmp/claude-1000/-home-swoosh-homelab/cb338e8a-9190-4715-a77e-b5b9e233df8b/scratchpad/bad.csv"); page.wait_for_timeout(400)
+    open("" + TMP + "/replay.csv", "w").write("\n".join(rows) + "\n")
+    open("" + TMP + "/bad.csv", "w").write("a,b\n1,2\n")
+    page.set_input_files("#simFile", "" + TMP + "/bad.csv"); page.wait_for_timeout(400)
     check("Could not read" in page.inner_text("#simDesc"), "a CSV without a time column is refused with a message")
-    page.set_input_files("#simFile", "/tmp/claude-1000/-home-swoosh-homelab/cb338e8a-9190-4715-a77e-b5b9e233df8b/scratchpad/replay.csv"); page.wait_for_timeout(500)
+    page.set_input_files("#simFile", "" + TMP + "/replay.csv"); page.wait_for_timeout(500)
     check("600 rows" in page.inner_text("#simDesc") and "with GPS" in page.inner_text("#simDesc"), "replay loaded: " + page.inner_text("#simDesc"))
     go(page, "replay", 60, TRIP_MERGE_MS=60000)
     wait(page, "latest.speed != null && latest.speed > 70", 40000)
