@@ -22,13 +22,17 @@ def app(viewport=(412, 915), mock=True, splash=False, theme=None, gps=None, net=
         if mock:
             c.add_init_script(path=str(ROOT / "tests" / "mock-adapter.js"))
         # Network stub: tests never touch the internet. page.net['overpass'] / ['weather'] = JSON to serve (None = fail), ['offline'] = fail everything.
-        netstate = {"log": [], "offline": False, "overpass": None, "weather": None}
+        netstate = {"log": [], "offline": False, "overpass": None, "weather": None, "tiles": False, "tiles_log": []}
         netstate.update(net or {})
         def _route(route):
             url = route.request.url
             if url.startswith("http://127.0.0.1"): return route.continue_()
             netstate["log"].append({"method": route.request.method, "url": url, "body": route.request.post_data})
             body = None
+            if "tile.openstreetmap.org" in url:        # map tiles: a 1x1 PNG when net['tiles'] is true, else a failure (= offline)
+                netstate["tiles_log"].append(url)
+                if netstate.get("tiles") and not netstate["offline"]: return route.fulfill(status=200, content_type="image/png", body=__import__("base64").b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="))
+                return route.abort()
             if "overpass-api.de" in url: body = netstate["overpass"]
             elif "open-meteo.com" in url: body = netstate["weather"]
             if netstate["offline"] or body is None: return route.abort()

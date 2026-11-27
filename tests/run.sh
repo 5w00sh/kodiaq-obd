@@ -21,4 +21,5 @@ python3 test_v612.py
 python3 test_v613.py
 python3 test_overlimit.py
 python3 test_road.py
+python3 test_map.py
 [ -n "$FAST" ] || python3 test_engine_cycle.py

@@ -492,6 +492,17 @@ const KobdSim = SIM ? (function(){
   /* over the OSM limit (steady, no flashing, no sound): amber above the limit, red above limit + tolerance. Inset ring + a faint tint; sizes untouched so the readability floors hold */
   #t_speed.ovw{box-shadow:inset 0 0 0 3px var(--warn);background:color-mix(in srgb,var(--warn) 9%,var(--card))}
   #t_speed.ovr{box-shadow:inset 0 0 0 5px var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--card))}
+  /* trip map */
+  #trips .trip{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:44px;cursor:pointer} #trips .trip .chev{color:var(--acc);font-size:22px;line-height:1}
+  #mapView{position:absolute;inset:0;z-index:6;display:none;flex-direction:column;background:var(--bg)} #mapView.show{display:flex}
+  #mapBar{flex:none;display:flex;align-items:center;gap:8px;padding:8px max(var(--gap),env(safe-area-inset-left));border-bottom:1px solid var(--line)}
+  #mapBar button{min-width:44px;min-height:44px;padding:8px 12px;font-size:var(--fs-s)} #mapTitle{flex:1;min-width:0;font-weight:700;font-size:var(--fs-s);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .seg{display:flex;flex:none} .seg button{border-radius:0} .seg button:first-child{border-radius:var(--r-s) 0 0 var(--r-s)} .seg button:last-child{border-radius:0 var(--r-s) var(--r-s) 0;border-left:0} .seg button.sel{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
+  #mapBox{flex:1;min-height:100px;position:relative;z-index:0;isolation:isolate;background:var(--card2)} #mapBox .leaflet-container,#mapBox.leaflet-container{font:inherit;background:var(--card2)}
+  #mapBox .msg{position:absolute;inset:0;display:grid;place-items:center;padding:20px;text-align:center;color:var(--mut);font-size:var(--fs-m)}
+  #mapLegend{flex:none;padding:6px max(var(--gap),env(safe-area-inset-left)) 2px;font-size:var(--fs-s);color:var(--mut)} #mapLegend .bar{height:10px;border-radius:5px;margin:3px 0} #mapLegend .ends{display:flex;justify-content:space-between;gap:8px} #mapLegend .cap{color:var(--warn);font-weight:700}
+  #mapInfo{flex:none;padding:4px max(var(--gap),env(safe-area-inset-left)) 8px;font-size:var(--fs-s);min-height:2.7em;color:var(--txt)}
+  @media (orientation:landscape) and (max-height:500px){ #mapBar{padding:4px 10px} #mapLegend{padding-top:2px} #mapInfo{min-height:0;padding-bottom:4px} }
   /* version row: pinned at the top of the Log tab (visible in the installed app at every size; 5 taps on it unlock the developer menu) */
   .rtrip{padding:6px 0;border-bottom:1px solid var(--line);font-size:var(--fs-s)} .rtrip button{min-width:0;padding:5px 10px;margin-left:6px;font-size:var(--fs-s)}
   #verRow{position:sticky;top:calc(-1*var(--gap));z-index:3;margin:calc(-1*var(--gap)) calc(-1*max(var(--gap),env(safe-area-inset-right))) var(--gap) calc(-1*max(var(--gap),env(safe-area-inset-left)));padding:calc(var(--gap) + 2px) max(var(--gap),env(safe-area-inset-right)) 8px max(var(--gap),env(safe-area-inset-left));background:var(--bg);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:var(--fs-s);-webkit-user-select:none;user-select:none}
@@ -615,6 +626,14 @@ const KobdSim = SIM ? (function(){
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>
     <div>Adapter asleep – press the button on the iCar2, then tap Connect<small>It sleeps 30 min after the engine stops and only wakes with its button. Tap to dismiss.</small></div>
   </div>
+  <!-- TRIP MAP (v6.1.6) -->
+  <div id="mapView" role="dialog" aria-label="Trip map">
+    <div id="mapBar"><button id="mapClose" aria-label="Close map">✕</button><div id="mapTitle"></div>
+      <div class="seg" role="group" aria-label="Layer"><button id="mapSpeed" class="sel" aria-pressed="true">Speed</button><button id="mapRough" aria-pressed="false">Roughness</button></div></div>
+    <div id="mapBox"></div>
+    <div id="mapLegend"></div>
+    <div id="mapInfo" role="status"></div>
+  </div>
   <!-- DRIVE -->
   <div class="pane sel" id="p_drive">
     <div id="regen"></div>
@@ -667,6 +686,7 @@ const KobdSim = SIM ? (function(){
       <section>
         <h2>Recent trips</h2>
         <div id="trips" class="note">None yet.</div>
+        <p class="note" id="tripsHint">Tap a trip to see its route on a map.</p>
       </section>
     </div>
   </div>
@@ -1106,7 +1126,7 @@ function renderLearned(){
   const trips = store.get('trips', []);
   $('trips').innerHTML = trips.length ? trips.slice(-6).reverse().map(t=>{
     const d = new Date(t.date);
-    return `<div>${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}: ${t.miles.toFixed(1)} mi · <b style="color:var(--txt)">${t.mpg?t.mpg.toFixed(1):'–'} mpg</b>${t.score!=null?' · score '+Math.round(t.score):''}${t.stops&&t.stops.length?' · '+t.stops.length+' stop'+(t.stops.length>1?'s':''):''}${t.ascent!=null?' · ↑'+t.ascent+' m':''}</div>`; }).join('') : 'None yet.';
+    return `<div class="trip" role="button" tabindex="0" data-d="${t.date}"><span>${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}: ${t.miles.toFixed(1)} mi · <b style="color:var(--txt)">${t.mpg?t.mpg.toFixed(1):'–'} mpg</b>${t.score!=null?' · score '+Math.round(t.score):''}${t.stops&&t.stops.length?' · '+t.stops.length+' stop'+(t.stops.length>1?'s':''):''}${t.ascent!=null?' · ↑'+t.ascent+' m':''}</span><b class="chev" aria-hidden="true">›</b></div>`; }).join('') : 'None yet.';
   // insights
   const ins = [], real = trips.filter(t=>t.miles >= 1 && t.mpg);
   const totMi = real.reduce((a,t)=>a+t.miles,0);
@@ -1349,7 +1369,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.1.5';
+const APP_VERSION = '6.1.6';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -2331,6 +2351,86 @@ $('roadTrips').addEventListener('click', async e=>{ const b = e.target.closest('
   if (b.classList.contains('rexp')) RR.exportTrips([id], String(id)); else if (b.classList.contains('rdel') && confirm('Delete this trip\'s road data?')){ await RR.del(id); RR.view(); } });
 RR.view(); if (RR.on) RR.sync();
 
+// ---------- trip map (v6.1.6): vendored Leaflet (vendor/), OSM tiles when online, route outline offline. Raw roughness = uncalibrated accel RMS. ----------
+const MapUI = (function(){
+  const SPEED = ['#440154', '#3b528b', '#21908d', '#5dc863', '#fde725'], ROUGH = ['#1a9850', '#a6d96a', '#fee08b', '#f46d43', '#a50026'];
+  const hex2 = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  function ramp(stops, f){ f = Math.max(0, Math.min(1, f)); const x = f * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(x)), a = hex2(stops[i]), b = hex2(stops[i + 1]), k = x - i; return '#' + a.map((v, j) => Math.round(v + (b[j] - a[j]) * k).toString(16).padStart(2, '0')).join(''); }
+  const grad = stops => 'linear-gradient(90deg,' + stops.join(',') + ')';
+  let map = null, tiles = null, group = [], hi = null, pts = [], mode = 'speed', outline = false, offline = false, loading = null, tileOk = 0, tileErr = 0, gen = 0;
+  const NOTE_OFFLINE = 'Offline: route outline only, no map tiles.';
+  function loadLeaflet(){
+    if (window.L) return Promise.resolve(); if (loading) return loading;
+    loading = new Promise((res, rej) => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'vendor/leaflet.css'; document.head.appendChild(l);
+      const sc = document.createElement('script'); sc.src = 'vendor/leaflet.js'; sc.onload = res; sc.onerror = () => { loading = null; rej(new Error('map library not available')); }; document.head.appendChild(sc); });
+    return loading;
+  }
+  const clearMap = () => { if (map){ try{ map.remove(); }catch{} } map = tiles = hi = null; group = []; $('mapBox').className = ''; $('mapBox').innerHTML = ''; };
+  function msg(t){ clearMap(); $('mapBox').innerHTML = '<div class="msg">' + t + '</div>'; $('mapLegend').innerHTML = ''; $('mapInfo').textContent = ''; }
+  function goOffline(){ if (offline) return; offline = true; if (tiles && map){ map.removeLayer(tiles); tiles = null; } $('mapBox').classList.add('blank'); $('mapInfo').textContent = NOTE_OFFLINE; }
+  const vals = key => pts.map(p => p[key]).filter(v => v != null && isFinite(v));
+  const pct = (a, q) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.min(s.length - 1, Math.floor(q * (s.length - 1)))] : 0; };
+  function scale(){
+    if (mode === 'speed'){ const v = vals('mph'), hi_ = Math.max(30, pct(v, 0.98)); return {lo: 0, hi: hi_, get: p => p.mph, stops: SPEED, a: '0 mph', b: Math.round(hi_) + ' mph'}; }
+    const v = vals('vRms'), lo = pct(v, 0.05), hi_ = Math.max(lo + 0.05, pct(v, 0.95));
+    return {lo, hi: hi_, get: p => p.vRms, stops: ROUGH, a: 'calm ' + lo.toFixed(2), b: 'rough ' + hi_.toFixed(2)};
+  }
+  function draw(){
+    if (!map) return; group.forEach(g => map.removeLayer(g)); group = [];
+    const rd = L.canvas({padding: 0.5}), sc = scale(), segs = {}, all = [];
+    for (let i = 0; i + 1 < pts.length; i++){ const a = pts[i], b = pts[i + 1];
+      if (!outline){ if (b.t && a.t && (b.t - a.t > 20000)) continue; if (map.distance([a.lat, a.lon], [b.lat, b.lon]) > 500) continue; }       // recorded rows: don't join across GPS gaps; the simplified outline has long segments by design
+      const va = sc.get(a), vb = sc.get(b), v = va != null && vb != null ? (va + vb) / 2 : (va != null ? va : vb);
+      const k = outline || v == null ? 'x' : Math.round(Math.max(0, Math.min(1, (v - sc.lo) / (sc.hi - sc.lo || 1))) * 19);
+      (segs[k] = segs[k] || []).push([[a.lat, a.lon], [b.lat, b.lon]]); all.push([a.lat, a.lon], [b.lat, b.lon]); }
+    group.push(L.polyline(Object.values(segs).flat(), {color: '#fff', weight: 10, opacity: 0.75, renderer: rd, interactive: false}).addTo(map));   // casing: readable on any tile
+    for (const [k, v] of Object.entries(segs)) group.push(L.polyline(v, {color: k === 'x' ? '#555' : ramp(sc.stops, +k / 19), weight: 6, opacity: 1, lineCap: 'round', renderer: rd, interactive: false}).addTo(map));
+    const lg = $('mapLegend');
+    if (outline) lg.innerHTML = '<div>No road-data recording for this trip: route outline only. Turn on Road mapping (Car tab) to record speed and roughness.</div>';
+    else lg.innerHTML = '<div class="bar" style="background:' + grad(sc.stops) + '"></div><div class="ends"><span>' + sc.a + '</span><span>' + sc.b + '</span></div>' + (mode === 'rough' ? '<div class="cap">uncalibrated – speed bumps not excluded</div><div>Raw accel RMS (m/s²), coloured per trip.</div>' : '');
+    $('mapSpeed').classList.toggle('sel', mode === 'speed'); $('mapRough').classList.toggle('sel', mode === 'rough');
+    $('mapSpeed').setAttribute('aria-pressed', mode === 'speed'); $('mapRough').setAttribute('aria-pressed', mode === 'rough');
+    window.__mapLayers = group.slice(1).map(g => g.options.color);                                   // test hook: the colours drawn
+  }
+  function info(p){
+    if (!p){ $('mapInfo').textContent = offline ? NOTE_OFFLINE : 'Tap near the route for details.'; return; }
+    const tm = p.t ? new Date(p.t).toLocaleTimeString('en-GB') : '–', f = (v, d, u) => v == null ? '–' : v.toFixed(d) + u;
+    $('mapInfo').textContent = outline ? 'Route point (no recorded values).' : `${tm} · ${f(p.mph, 0, ' mph')} · accel RMS ${f(p.vRms, 2, ' m/s²')} · p-p ${f(p.vPp, 2, '')} · jerk ${f(p.jerkMax, 1, '')} · ${p.rpm != null ? Math.round(p.rpm) + ' rpm' : '– rpm'} · GPS ${p.acc != null ? '±' + p.acc + ' m' : '–'}`;
+  }
+  function tap(e){
+    let best = null, bd = 1e9; const c = map.latLngToContainerPoint(e.latlng);
+    for (const p of pts){ const q = map.latLngToContainerPoint([p.lat, p.lon]), d = Math.hypot(q.x - c.x, q.y - c.y); if (d < bd){ bd = d; best = p; } }
+    if (hi){ map.removeLayer(hi); hi = null; }
+    if (best && bd <= 30){ hi = L.circleMarker([best.lat, best.lon], {radius: 9, color: '#000', weight: 3, fillColor: '#fff', fillOpacity: 1, interactive: false}).addTo(map); info(best); window.__mapTap = best; } else { info(null); window.__mapTap = null; }
+  }
+  async function open(tr){
+    const my = ++gen; $('mapView').classList.add('show'); offline = false; mode = 'speed'; outline = false;
+    const d = new Date(tr.date); $('mapTitle').textContent = d.toLocaleDateString('en-GB', {day: 'numeric', month: 'short'}) + ' ' + d.toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit'}) + ' · ' + tr.miles.toFixed(1) + ' mi';
+    $('mapInfo').textContent = 'Loading…'; $('mapLegend').innerHTML = '';
+    let rows = []; try{ if (tr.rr) rows = (await RR.rows(tr.rr)).filter(r => r.lat != null && r.lon != null); }catch{}
+    if (rows.length < 2 && tr.route && tr.route.length > 1){ outline = true; rows = tr.route.map(q => ({lat: q[0], lon: q[1]})); }
+    if (my !== gen) return;
+    if (rows.length < 2){ msg('This trip has no GPS route to show.'); return; }
+    pts = rows.map(r => ({...r, mph: r.speed != null ? r.speed / KM_PER_MILE : null}));
+    try{ await loadLeaflet(); }catch(e){ msg('The map library could not be loaded (' + e.message + ').'); return; }
+    if (my !== gen) return;
+    clearMap(); tileOk = tileErr = 0;
+    map = L.map('mapBox', {preferCanvas: true, zoomSnap: 0.5, minZoom: 3, maxZoom: 18, zoomControl: true});
+    tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors', keepBuffer: 1, updateWhenIdle: true, updateWhenZooming: false}).addTo(map);
+    tiles.on('tileload', () => { tileOk++; }); tiles.on('tileerror', () => { tileErr++; if (tileErr >= 3 && tileOk === 0) goOffline(); });
+    if (!navigator.onLine) goOffline();
+    map.fitBounds(L.latLngBounds(pts.map(p => [p.lat, p.lon])), {padding: [28, 28], maxZoom: 16}); setTimeout(() => { if (map){ map.invalidateSize(); } }, 0);
+    map.on('click', tap); draw(); info(null);
+  }
+  function close(){ gen++; $('mapView').classList.remove('show'); clearMap(); }
+  $('mapClose').onclick = close;
+  $('mapSpeed').onclick = () => { mode = 'speed'; draw(); }; $('mapRough').onclick = () => { mode = 'rough'; draw(); };
+  const find = d => store.get('trips', []).find(t => t.date === d);
+  const pick = e => { const r = e.target.closest('.trip'); if (!r) return; const t = find(r.dataset.d); if (t) open(t); };
+  $('trips').addEventListener('click', pick); $('trips').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pick(e); } });
+  return {open, close, get map(){ return map; }, get offline(){ return offline; }};
+})();
+
 // ---------- developer menu + simulator (tap the version 5 times) ----------
 (function(){
   const dm = $('devMenu'); document.body.classList.toggle('sim', SIM); if (SIM) document.title = 'SIMULATION · ' + document.title;
@@ -2372,6 +2472,7 @@ RR.view(); if (RR.on) RR.sync();
 
 // ---------- tabs ----------
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  if (typeof MapUI !== 'undefined') MapUI.close();
   document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('sel', x===b));
   document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('sel', p.id==='p_'+b.dataset.p));
   if (b.dataset.p==='style') renderLearned();

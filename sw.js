@@ -1,6 +1,6 @@
 // Offline cache: network-first, falls back to cache (so it opens with no signal in the car)
-const C = 'kodiaq-obd-v19';
-const FILES = ['./', './index.html', './manifest.json', './icon.svg'];
+const C = 'kodiaq-obd-v20';
+const FILES = ['./', './index.html', './manifest.json', './icon.svg', './vendor/leaflet.js', './vendor/leaflet.css'];   // vendored Leaflet: the map works offline (tiles are never cached)
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(FILES)).catch(()=>{})); });   // no skipWaiting here: the page offers the update and sends SKIP_WAITING when the user taps
 self.addEventListener('message', e => { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== C).map(k => caches.delete(k))))); self.clients.claim(); });

@@ -24,11 +24,11 @@
 ## v6.1.5 – Road data recorder — DONE
 - Car tab "Road mapping" (per device, default OFF): DeviceMotion -> 1 Hz rows (accel RMS/pp/jerk, gyro RMS, gravity, GPS, OBD speed, rpm) per trip in IndexedDB, ~50 MB cap with oldest-trip eviction, 30 s mount-noise sample at idle, CSV + JSON export with a GPS warning. Records only: no analysis.
 
-## v6.1.5 (old plan, merged into v6.1.6) – Trip map
-- Style tab → tap a trip → simple route map: OSM tiles when online, canvas outline offline (vendored lib, no CDNs), route line coloured by speed.
+## v6.1.6 – Raw road overlay map (uncalibrated) — DONE
+- Vendored Leaflet 1.9.4 (`vendor/`, no CDN). OSM tiles when online with attribution (light use: visible tiles only, no preloading, never cached); offline fallback draws the route outline on a blank map. Style tab → tap a trip → map of its route. Layers: speed / roughness (raw accel RMS, green→red, labelled "uncalibrated – speed bumps not excluded"). Tap a point: time, speed, raw values. Fits and stays readable at 360x760 and 412x915.
 
 ## Stage 3 – Motion sensors + Road condition map (v6.2.0)
-- Note: the v6.1.5 trip map becomes the base for the road-condition map (same tile/canvas renderer, segments coloured by eIRI instead of speed).
+- Note: Stage 3 REPROCESSES the rows recorded since v6.1.5 (1 Hz aggregates in IndexedDB + the mount-noise samples): calibration, eIRI, pothole detection, speed-bump exclusion and the council report all run over stored data. It builds on the v6.1.6 map (same Leaflet view; segments coloured by eIRI instead of raw accel RMS).
 - Per-device setting "Road mapping" default OFF; only on for the Pixel 10 Pro XL in a Spigen Cryomax MagFit Qi2 vent mount (Peltier fan). Devices are independent, no syncing.
 - G-forces (long/lat), harsh cornering, braking in g → eco score.
 - Learning/calibration: first 3 drives "calibrating" (show progress, map marked low-confidence). Continuous gravity estimation for orientation; learn mount noise floor at idle (incl. fan); learn the vent mount's resonance (FFT) and attenuate; road band ~0.5–20 Hz; normalise via repeat passes; auto re-learn if noise/resonance shifts. Warn if the mount looks loose.

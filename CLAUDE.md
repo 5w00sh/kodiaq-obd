@@ -4,7 +4,7 @@ Single-file PWA (`index.html`, plain JS, no build) for a Skoda Kodiaq diesel, ta
 Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git repo (origin 5w00sh/kodiaq-obd), nested inside ~/homelab.
 
 ## Hard constraints
-- Single offline page: everything in `index.html` (+ `sw.js`, `manifest.json`, `icon.svg`). No CDNs, no external fonts/scripts/images, no build step.
+- Single offline page: everything in `index.html` (+ `sw.js`, `manifest.json`, `icon.svg`). No CDNs, no external fonts/scripts/images, no build step. The one exception: vendored libraries in `vendor/` (Leaflet 1.9.4 + its BSD-2 licence, v6.1.6), loaded lazily by the app itself and listed in `sw.js` FILES so they work offline.
 - No secrets, tokens or personal data in the repo: it is PUBLIC.
 - The Drive tab must fit with NO scrolling at 412x915, 915x412, 800x1280, 1280x800 and the system-bar sizes 800x1100, 1280x700, 412x840, 360x690, 760x320 (tests/test_layouts.py enforces it).
 - Network calls only where a stage explicitly allows them (Stage 2: Overpass + Open-Meteo, no keys); GPS routes and motion data stay on the device.
@@ -72,6 +72,7 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 ## v6.1.3 pre-start battery reading
 - Connect with the engine off starts `pre` (in `loop()` via `preStartTick()`): several ATRV reads over ~5 s (>= 3), then the engine must stay < 300 rpm for 10 s MORE before the MEDIAN is recorded (`recordBattery`). Status shows "Hold off starting for 10 s for a battery reading" meanwhile. If the engine starts first (rpm >= 300 or `startAt` set), one extra immediate read is taken and the lowest sample, if < 12.0 V, is kept as crank voltage (`recordCrank`); otherwise "no resting reading kept". Engine already running at connect: no measurement. Stop clears it.
 - Real time per case ~16 s: tests wait for `kobd_batt` instead of 1.5 s. The simulator delays every scenario's engine start by `S.lead` (35 s, or 1.6 x rate) so scenarios can finish the measurement (`asleep` excepted).
+- `tests/test_map.py`: trip map (vendored Leaflet, tiles online/offline, speed/roughness layers, tap values, fit + readability at both phone sizes).
 - `tests/test_road.py`: road recorder (OFF = nothing, rows + stats, mount noise, 50 MB cap eviction, export CSV/JSON + GPS warning, sim isolation).
 - `tests/test_overlimit.py`: overStep state machine (all 3 tolerances, timers, hysteresis), end-to-end with mock GPS (accuracy 25 m vs 8 m, unknown limit), setting.
 - `tests/test_v613.py`: median with an outlier, start right after Connect (crank, no resting reading), start inside the 10 s hold, engine already running, Stop while measuring.
@@ -84,6 +85,12 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - IndexedDB `kobd_road` (`kobd_sim_road` in simulation, deleted on leaving/any normal start): stores `trips` (meta), `chunks` ([tripId, i] -> <=30 rows), `noise`. Cap `RR.CAP` (50 MB, estimate 190 B/row): oldest trip evicted first (never the one recording) + warning in the Road data section and a status hint. Saved trips (`kobd_trips`) carry `rr` = the recording id (for the v6.1.6 map).
 - Mount-noise sample: after `noiseSettle` s (3) at 300-1500 rpm and < 2 km/h, `noiseMs` (33 s) of raw samples [dtMs, ax, ay, az, alpha, beta, gamma] flat in the `noise` store, once per trip, newest 5 kept.
 - Export (`RR.exportTrips(ids)`): CSV + JSON via the share sheet (download fallback), always behind a confirm() that says it contains GPS locations; `window.__exports` records what was produced (tests). Tests: `tests/test_road.py` with `common.app(motion=..., permissions=["accelerometer","gyroscope"])` and the mock DeviceMotion in `mock-adapter.js` (`window.__motion`).
+
+## v6.1.6 trip map
+- Style tab: each recent trip is a tappable row (`#trips .trip`, `data-d` = trip date) -> `MapUI.open(trip)` (full-area overlay `#mapView` inside `<main>`; closes on tab change). `vendor/leaflet.js|css` are injected on first use (never at startup). Rows come from `RR.rows(trip.rr)` (recording from v6.1.5); a trip without recording shows its simplified `trip.route` as an outline with the hint to turn Road mapping on; no route = message.
+- Layers: Speed (viridis, OBD mph) / Roughness (raw `vRms`, green->red between the trip's p5 and p95, caption "uncalibrated – speed bumps not excluded"). One canvas polyline per colour bucket + white casing. Tap within 30 px of a point: time, mph, accel RMS, p-p, jerk, rpm, GPS accuracy. Test hooks: `window.__mapLayers` (colours drawn), `window.__mapTap`.
+- Tiles: OSM `tile.openstreetmap.org` with attribution, `keepBuffer:1`, no preloading, never cached by the service worker. 3 tile errors with none loaded (or `navigator.onLine` false) -> `goOffline()`: blank map, outline + colours still drawn, "Offline: route outline only" message. Tests stub tiles via `common.app(net={"tiles": True})` (else tile requests fail = offline).
+- `tests/test_map.py`: 360x760 and 412x915, night + day, both layers, tap, outline/no-GPS/offline cases, readability (fonts >= 12 px, targets >= 44 px, nothing clipped).
 
 ## Fuel & range (v6.0.2)
 - Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
