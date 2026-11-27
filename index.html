@@ -489,6 +489,12 @@ const KobdSim = SIM ? (function(){
   :root[data-theme=night] .limit .rnd{filter:brightness(.82)}
   /* narrow speed tile (landscape phones): no room beside the digits, so a small roundel sits in the top-right corner and the caption drops (aria-label + Car tab keep the 'may be wrong' note) */
   @container (max-width:300px){ .limit{--d:min(40px,26cqh);top:6px;right:8px;transform:none} .limit small{display:none} }
+  /* version row: pinned at the top of the Log tab (visible in the installed app at every size; 5 taps on it unlock the developer menu) */
+  #verRow{position:sticky;top:calc(-1*var(--gap));z-index:3;margin:calc(-1*var(--gap)) calc(-1*max(var(--gap),env(safe-area-inset-right))) var(--gap) calc(-1*max(var(--gap),env(safe-area-inset-left)));padding:calc(var(--gap) + 2px) max(var(--gap),env(safe-area-inset-right)) 8px max(var(--gap),env(safe-area-inset-left));background:var(--bg);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:var(--fs-s);-webkit-user-select:none;user-select:none}
+  #verNote{font-weight:700;color:var(--txt);cursor:default}
+  /* update toast */
+  #updToast{position:absolute;left:var(--gap);right:var(--gap);bottom:calc(var(--nav) + env(safe-area-inset-bottom) + 8px);z-index:20;display:none;padding:14px 16px;border:2px solid var(--acc);border-radius:var(--r);background:var(--card);color:var(--txt);font:inherit;font-size:var(--fs-m);font-weight:700;text-align:center;box-shadow:0 10px 32px #0008;cursor:pointer;min-width:0}
+  #updToast.show{display:block}
   /* simulation banner: its own strip under the header; the tab area shrinks by --simh */
   #simBar{display:none;position:absolute;left:0;right:0;top:calc(var(--hdr) + env(safe-area-inset-top));height:var(--simh,0px);z-index:5;background:var(--warn);color:var(--onacc);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;line-height:20px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px}
   body.sim{--simh:20px} body.sim #simBar{display:block}
@@ -598,6 +604,7 @@ const KobdSim = SIM ? (function(){
   </button>
 </header>
 
+<button id="updToast" type="button" role="status">Update available – tap to reload</button>
 <div id="simBar" role="status">Simulation · not your real car or data</div>
 <main>
   <div id="asleep" role="alert" aria-live="assertive">
@@ -758,6 +765,7 @@ const KobdSim = SIM ? (function(){
 
   <!-- LOG -->
   <div class="pane" id="p_log">
+    <div id="verRow"><span id="verNote"></span></div>
     <div class="cols">
       <section id="devMenu" style="display:none"></section>
       <section>
@@ -770,7 +778,6 @@ const KobdSim = SIM ? (function(){
         <pre id="log"></pre>
       </section>
     </div>
-    <p class="note" id="verNote"></p>
     <p class="note">Plug in the iCar2 (press its button if the light is off), pair it in Android Bluetooth settings once (PIN 1234 or 0000), ignition on, then Connect. Read-only except "Clear codes". Set it up before you drive, don't touch it while driving.</p>
   </div>
 </main>
@@ -1327,7 +1334,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.1.1';
+const APP_VERSION = '6.1.2';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1733,7 +1740,17 @@ $('btnReport').onclick = shareReport;
 $('btnPrice').onclick = setPrice;
 fillInfo(); trainModel(); renderLearned(); renderDpf(); renderVsExpected(); renderBattery(); renderScans(); if (scans.length) showScan(scans[scans.length-1]);
 window.addEventListener('pagehide', ()=>{ store.set('sinceFill', sinceFill); store.set('bands', bands); });
-if ('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+if ('serviceWorker' in navigator && (location.protocol==='https:' || window.__KOBD_SW)){
+  // A new service worker waits (sw.js no longer skips waiting by itself): tell the user, and only swap + reload when they tap, so the installed app never sits on an old version unknowingly.
+  const toast = $('updToast'); let reloading = false;
+  const offer = w => { if (!w) return; toast.classList.add('show'); toast.onclick = ()=>{ toast.textContent = 'Updating…'; w.postMessage({type:'SKIP_WAITING'}); }; };
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
+    reg.addEventListener('updatefound', ()=>{ const nw = reg.installing; if (nw) nw.addEventListener('statechange', ()=>{ if (nw.state==='installed' && navigator.serviceWorker.controller) offer(nw); }); });
+    setInterval(()=>reg.update().catch(()=>{}), 30*60*1000); document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible') reg.update().catch(()=>{}); });
+  }).catch(()=>{});
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{ if (reloading || !toast.classList.contains('show')) return; reloading = true; location.reload(); });
+}
 document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && running) keepAwake(); });
 
 // =====================================================================
@@ -2169,7 +2186,7 @@ setBig(!!store.get('big', false));
   let taps = [];
   function tap(){ const n = realNow(); taps = taps.filter(t=>n-t < 4000); taps.push(n);
     if (taps.length >= 5 && !unlocked()){ try{ sessionStorage.setItem('kobd_dev','1'); }catch{} show(); document.querySelector('nav button[data-p="log"]').click(); setStatusHint('Developer menu unlocked'); } }
-  for (const id of ['ver','verNote']) $(id).addEventListener('click', tap);
+  for (const id of ['ver','verRow']) $(id).addEventListener('click', tap);       // a tap on the version text bubbles up to the row: counted once
   show();
 })();
 

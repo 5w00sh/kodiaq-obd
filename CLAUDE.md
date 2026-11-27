@@ -64,6 +64,11 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - `kobdCreateElm()` is a COPY of tests/mock-adapter.js's ELM327 core (+ `mock.ov` overrides, `crankV/runV/crankLen`, `mock.rate`). `tests/test_sim.py` compares both for 176 commands: change one, change the other. `KobdSim` (sim only) adds the virtual clock (`Date.now`/`performance.now` run at 1x/10x/60x; transport timeouts use `realNow`), scenarios (school, motorway, dpf, hot, lowfuel, refuel, restart, asleep, weak), CSV replay (`t` ISO + the columns this app exports; optional `lat`/`lon`; `gpsKmh`/`alt` used if present) and simulated GPS (`navigator.geolocation`/`permissions` replaced in sim).
 - Connect in sim runs the real code path (`KobdSim.requestPort()` returns a Port to the bundled ELM core). Scenario starts at the first Connect and keeps running across Stop/Connect; "Restart" resets. The app's CSV export has no lat/lon, so replays of this app's own logs get a synthetic GPS route.
 
+## v6.1.2 version visibility + update toast
+- The version (`#verNote`, "Kodiaq OBD vX") is a sticky row at the TOP of the Log tab (`#verRow`), so it is never under the bottom nav and shows in the installed app at every size. 5 taps on it (or on the header version where visible) unlock the developer menu; nothing on screen advertises that.
+- `sw.js` no longer calls `skipWaiting()` on install. The page registers it (https, or `window.__KOBD_SW` in tests), and when a new worker is waiting and there is a controller it shows `#updToast` "Update available – tap to reload"; the tap posts `SKIP_WAITING`, `controllerchange` reloads. Never reloads by itself (a drive may be in progress). Bump the `sw.js` cache name with every `APP_VERSION`.
+- `tests/test_v612.py` (headless Chromium cannot emulate display-mode, so it fakes `matchMedia('(display-mode: standalone)')`; the app does not depend on display-mode) + a real service worker served with a changing `sw.js` for the toast.
+
 ## Fuel & range (v6.0.2)
 - Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
 - Auto fill-up: level +10 points (vs last session, or vs the lowest of the last 10 min) -> `kobd_fillPending`; the Drive card appears only after 8 s stationary. A fill to >= 92 % with a receipt feeds `recordFill()` (pump calibration); smaller top-ups are only logged. Demo never writes fuel data.
@@ -87,6 +92,7 @@ Never push without OK. Everything stays on-device: no logos/images from the web,
 - `tests/test_isotp.py`: ISO-TP parser (spaces/no spaces, two ECUs), all 14 long PIDs through the mock, DPF/EGT/dP decode, health scan (nothing silent), experimental decoders, AdBlue tile, coolant rule, battery-reading message.
 - `tests/test_robust.py`: tempC / 0xFF / >150 C never shown or learned, short-stop trip merging (+ stops list), demo samples out of the CSV, cranking-dip voltage kept apart.
 - `tests/test_sim.py`: dev-menu unlock, sim isolation (real storage byte-identical), all 9 scenarios through the real pipeline at 60x, CSV replay with GPS, leaving simulation, bundled ELM core == tests mock.
+- `tests/test_v612.py`: version row visible/pinned at 360x760, 412x915, 360x690, 760x360; 5-tap unlock on it; update toast with a real service worker.
 - `tests/test_v604.py`: visualViewport sizing, idle/last-trip/last-known after Stop + Demo, hint row, hot-coolant hysteresis in every mode.
 - `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ (paused) -> on (same trip) -> off past the merge window (saved once, 2 stops) -> on (new trip); pre-start battery, auto health scan. ~1.5 min (real timers).
 - `tests/run.sh` runs all; `FAST=1 tests/run.sh` skips the engine cycle.
