@@ -14,6 +14,8 @@
     coolantC: 90,           // PID 05
     dpfTrigPct: 62,         // PID 8B byte C (soot %), multi-frame
     dpfRegen: false,        // PID 8B status bit
+    oilRaw: null,           // PID 5C raw byte override (255 = sensor not ready, the first sample after a restart on the real car)
+    crankUntil: 0,          // ms timestamp: until then every voltage reads 10.0 (cranking dip)
     egtC: 280,              // PID 78 sensor temps, multi-frame
     mode03: null,           // array of reply lines to override the default "4300" x2 (no codes)
     restVolt: 12.4,         // ATRV before the engine has ever run (ignition on, rested battery)
@@ -22,7 +24,7 @@
     t0: Date.now(),
     speedKmh() { if (!this.engine) return 0; if (this.cruise != null) return this.cruise; const t = (Date.now() - this.t0) / 1000; return Math.max(0, Math.round(55 + 35 * Math.sin(t / 6))); },
     rpm() { return this.engine ? Math.round(800 + this.speedKmh() * 26) : 0; },
-    volt() { if (this.engine) { this.hasRun = true; return 13.2 + (Date.now() % 3) / 10; } return this.hasRun ? 11.0 : this.restVolt; },
+    volt() { if (Date.now() < this.crankUntil) return 10.0; if (this.engine) { this.hasRun = true; return 13.2 + (Date.now() % 3) / 10; } return this.hasRun ? 11.0 : this.restVolt; },
   };
   const hexb = (...b) => b.map(x => (x & 255).toString(16).padStart(2, '0').toUpperCase()).join('');  // ATS0: no spaces
   // supported-PID bitmask for one 32-PID block: PID base+i+1 -> bit i from MSB
@@ -76,7 +78,7 @@
         case 0x0F: return [head + hexb(20 + 40)];
         case 0x11: return [head + hexb(mock.engine ? 60 : 0)];
         case 0x46: return [head + hexb(8 + 40)];
-        case 0x5C: return [head + hexb(88 + 40)];
+        case 0x5C: return [head + hexb(mock.oilRaw != null ? mock.oilRaw : 88 + 40)];
         case 0x5E: { const v = mock.engine ? Math.round((0.75 + sp * 0.05) * 20) : 0; return [head + hexb(v >> 8, v & 255)]; }
         case 0x10: { const v = mock.engine ? 400 + sp * 10 : 0; return [head + hexb(v >> 8, v & 255)]; }
         case 0x1F: return [head + hexb(0, 120)];

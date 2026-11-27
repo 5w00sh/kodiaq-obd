@@ -547,15 +547,19 @@ async function initElm(){
 }
 
 // ---------- PIDs ----------
+// Temperature bytes: raw 255 (0xFF) = "sensor not ready" (oil showed 215 C for the first sample after each restart); anything above 150 C is bogus. -> null.
+// (Exhaust temps are legitimately hotter: they have their own parser.)
+const tempC = x => (x == null || x === 255 || x - 40 > 150 || x - 40 < -40) ? null : x - 40;
+const TEMP_TILES = new Set(['coolant','iat','oil','amb']), TEMP_KEYS = new Set(['05','0F','5C','46','67','77']);
 const PIDS = {
   speed:   {pid:'0D', fast:true,  f:b=>b[0]},
   rpm:     {pid:'0C', fast:true,  f:b=>((b[0]*256)+b[1])/4},
   throttle:{pid:'11', fast:true,  f:b=>b[0]*100/255},
   load:    {pid:'04', fast:false, f:b=>b[0]*100/255},
-  coolant: {pid:'05', fast:false, f:b=>b[0]-40},
-  iat:     {pid:'0F', fast:false, f:b=>b[0]-40},
-  oil:     {pid:'5C', fast:false, f:b=>b[0]-40},
-  amb:     {pid:'46', fast:false, f:b=>b[0]-40},
+  coolant: {pid:'05', fast:false, f:b=>tempC(b[0])},
+  iat:     {pid:'0F', fast:false, f:b=>tempC(b[0])},
+  oil:     {pid:'5C', fast:false, f:b=>tempC(b[0])},
+  amb:     {pid:'46', fast:false, f:b=>tempC(b[0])},
   fuel:    {pid:'2F', fast:false, f:b=>b[0]*100/255},   // fuel level % (smoothed in fuelSample)
 };
 const unsupported = new Set(), pidFails = {};
@@ -713,7 +717,7 @@ function saveTrip(){
   const h = store.get('trips', []);
   const m = styleMetrics();
   h.push({date:new Date(trip.t0).toISOString(), miles:tripKm()/KM_PER_MILE, litres:trip.L, mpg:mpg(tripKm(),trip.L), idleL:st.idleL,
-          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
+          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, stops:tripStops.map(x=>({...x})), hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
   tripsCache = h.slice(-300); store.set('trips', tripsCache); store.set('sinceFill', sinceFill); store.set('bands', bands);
   renderLearned();
 }
@@ -783,7 +787,7 @@ function renderLearned(){
   const trips = store.get('trips', []);
   $('trips').innerHTML = trips.length ? trips.slice(-6).reverse().map(t=>{
     const d = new Date(t.date);
-    return `<div>${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}: ${t.miles.toFixed(1)} mi · <b style="color:var(--txt)">${t.mpg?t.mpg.toFixed(1):'–'} mpg</b>${t.score!=null?' · score '+Math.round(t.score):''}</div>`; }).join('') : 'None yet.';
+    return `<div>${d.toLocaleDateString('en-GB',{day:'numeric',month:'short'})} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}: ${t.miles.toFixed(1)} mi · <b style="color:var(--txt)">${t.mpg?t.mpg.toFixed(1):'–'} mpg</b>${t.score!=null?' · score '+Math.round(t.score):''}${t.stops&&t.stops.length?' · '+t.stops.length+' stop'+(t.stops.length>1?'s':''):''}</div>`; }).join('') : 'None yet.';
   // insights
   const ins = [], real = trips.filter(t=>t.miles >= 1 && t.mpg);
   const totMi = real.reduce((a,t)=>a+t.miles,0);
@@ -959,6 +963,7 @@ function renderVsExpected(){
 // ---------- rendering ----------
 function show(name, v, dp){
   const t = $('t_'+name); if (!t) return;
+  if (v!=null && TEMP_TILES.has(name) && (v > 150 || v < -40)) v = null;
   const val = t.querySelector('.val'); const unit = val.querySelector('.unit');
   t.classList.toggle('na', v==null);
   if (name==='speed' && v!=null) v = v/KM_PER_MILE;
@@ -970,6 +975,7 @@ function show(name, v, dp){
   if (name==='rpm' && v!=null && v>=4500) t.classList.add('hot');
 }
 function record(){
+  if (demo){ $('logInfo').textContent = 'Demo: samples are not logged.'; return; }          // demo data never goes into the real trip log / CSV
   const now = Date.now(); if (now-lastLog < 1000) return; lastLog = now;
   samples.push({t:new Date(now).toISOString(), ...latest, egt:dpf.egt, dpfTrig:dpf.trigger, regen:dpf.active?1:0});
   $('logInfo').textContent = samples.length+' samples. Logs ~1 sample/second while connected.';
@@ -997,8 +1003,9 @@ async function loop(){
         if (!running) break;
         dpfUpdate(dtH); renderFuel(latest.speed||0); renderStyle(); renderDpf(); if (tick%10===0) renderVsExpected();
         if (tick%20===0 && supportedPids.has('A6')){ const b = await rawPid('A6'); if (b && b.length>=4){ odoKm = (((b[0]<<24)>>>0) + (b[1]<<16) + (b[2]<<8) + b[3])/10; if (trip.odo0==null) trip.odo0 = odoKm; show('odo', odoKm/KM_PER_MILE); } }
+        trackStart();
         if (tick%25===3 && supportedPids.has('9B')){ const b = await rawPid('9B'); if (!running) break; show('adblue', b && b.length>3 ? b[3]*100/255 : null); }
-        if (tick%10===0){ const v = await readVolt(); if (!running) break; latest.volt=v; show('volt',v); }
+        if (tick%10===0){ const v = await readVolt(); if (!running) break; handleVolt(v); }
         engineWatch();
         if (!scanning && tick > 20 && Date.now() - lastSweep > 10*60*1000 && (carState()==='idle' || carState()==='drive')) await learningCheck();
       }
@@ -1019,26 +1026,26 @@ async function loop(){
 const APP_VERSION = '6.0.5';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
-  '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>b[0]-40], '0B':['Intake manifold pressure','kPa',b=>b[0]],
-  '0C':['RPM','rpm',b=>(b[0]*256+b[1])/4], '0D':['Speed','km/h',b=>b[0]], '0F':['Intake air','°C',b=>b[0]-40],
+  '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
+  '0C':['RPM','rpm',b=>(b[0]*256+b[1])/4], '0D':['Speed','km/h',b=>b[0]], '0F':['Intake air','°C',b=>tempC(b[0])],
   '10':['Air flow (MAF)','g/s',b=>(b[0]*256+b[1])/100], '11':['Throttle','%',b=>b[0]*100/255],
   '1C':['OBD standard','',b=>({1:'OBD-II (CARB)',6:'EOBD (Europe)',7:'EOBD + OBD-II',9:'EOBD + OBD',13:'JOBD+EOBD'}[b[0]]||('type '+b[0]))],
   '1F':['Run time since start','s',b=>b[0]*256+b[1]], '21':['Distance with warning light on','km',b=>b[0]*256+b[1]],
   '2F':['Fuel level','%',b=>b[0]*100/255], '30':['Warm-ups since codes cleared','',b=>b[0]],
   '31':['Distance since codes cleared','km',b=>b[0]*256+b[1]], '33':['Barometric pressure','kPa',b=>b[0]],
   '42':['Control module voltage','V',b=>(b[0]*256+b[1])/1000], '45':['Relative throttle','%',b=>b[0]*100/255],
-  '46':['Outside air','°C',b=>b[0]-40], '49':['Accelerator pedal D','%',b=>b[0]*100/255], '4A':['Accelerator pedal E','%',b=>b[0]*100/255],
+  '46':['Outside air','°C',b=>tempC(b[0])], '49':['Accelerator pedal D','%',b=>b[0]*100/255], '4A':['Accelerator pedal E','%',b=>b[0]*100/255],
   '4C':['Commanded throttle actuator','%',b=>b[0]*100/255],
-  '51':['Fuel type','',b=>({1:'Petrol',4:'Diesel',8:'Electric'}[b[0]]||('type '+b[0]))], '5C':['Oil temperature','°C',b=>b[0]-40],
+  '51':['Fuel type','',b=>({1:'Petrol',4:'Diesel',8:'Electric'}[b[0]]||('type '+b[0]))], '5C':['Oil temperature','°C',b=>tempC(b[0])],
   '5E':['Fuel rate','L/h',b=>(b[0]*256+b[1])/20], '61':['Driver demand torque','%',b=>b[0]-125], '62':['Actual torque','%',b=>b[0]-125],
   '63':['Reference torque','Nm',b=>b[0]*256+b[1]], '78':['Exhaust temp (max)','°C',b=>parse78([0x0F&b[0],...b.slice(1)])],
   '7A':['DPF differential pressure','kPa',b=>(b[0]&1) ? (b[1]*256+b[2])/100 : null], '8B':['DPF regen trigger','%',b=>b.length>2 ? b[2]*100/255 : null],
   '8E':['Engine friction torque','%',b=>b[0]-125],
   // experimental: decoded from real raw values of this car (v6.0.5), formulas unverified
-  '9B':['AdBlue (DEF) level (experimental)','%',b=>b.length>3 ? b[3]*100/255 : null, b=>b.length>2 ? `tank ${b[2]-40} °C` : null],
+  '9B':['AdBlue (DEF) level (experimental)','%',b=>b.length>3 ? b[3]*100/255 : null, b=>b.length>2 && tempC(b[2])!=null ? `tank ${tempC(b[2])} °C` : null],
   'A4':['Gear (experimental)','',b=>b.length ? b[0] : null],
-  '77':['Charge-air temp (experimental)','°C',b=>b.length>2 ? b[1]-40 : null, b=>b.length>2 ? `sensor 2 ${b[2]-40} °C` : null],
-  '67':['Coolant sensor 1 (experimental)','°C',b=>b.length>1 ? b[1]-40 : null],
+  '77':['Charge-air temp (experimental)','°C',b=>b.length>2 ? tempC(b[1]) : null, b=>b.length>2 && tempC(b[2])!=null ? `sensor 2 ${tempC(b[2])} °C` : null],
+  '67':['Coolant sensor 1 (experimental)','°C',b=>b.length>1 ? tempC(b[1]) : null],
   'A2':['Fuel per stroke (experimental)','mg',b=>b.length>1 ? (b[0]*256+b[1])/32 : null], '9D':['Engine fuel rate','g/s',b=>(b[0]*256+b[1])/50],
   '9E':['Exhaust flow','kg/h',b=>(b[0]*256+b[1])/5], 'A6':['Odometer','km',b=>(((b[0]<<24)>>>0)+(b[1]<<16)+(b[2]<<8)+b[3])/10],
 };
@@ -1075,6 +1082,7 @@ function decodeMonitors(b){ // PID 01
 }
 function learnValue(state, key, v){
   if (v==null || !isFinite(v) || !LEARN[state] || !LEARN[state].includes(key)) return null;
+  if (TEMP_KEYS.has(key) && (v > 150 || v < -40)) return null;                        // 0xFF / not-ready temps never enter pidStats
   const k = state+':'+key, s = pidStats[k] || (pidStats[k] = {n:0, mean:0, m2:0});
   let flag = null;
   if (s.n >= 30){ const sd = Math.max(Math.sqrt(s.m2/(s.n-1)), Math.abs(s.mean)*0.02, 0.3); const z = (v - s.mean)/sd;
@@ -1092,11 +1100,14 @@ async function sweep(){
     let b = null; try{ b = await rawPid(pid); }catch{}
     if (!b){ out[pid] = {ok:false}; continue; }
     const d = DEC[pid]; let v = null; try{ v = d ? d[2](b) : null; }catch{}
+    if (pid==='42' && inCrank()) v = null;                    // module voltage during the cranking dip is not a reading
     let extra = null; try{ extra = d && d[3] ? d[3](b) : null; }catch{}
-    out[pid] = {ok:true, raw:hex(b), v, label:d?d[0]:null, unit:d?d[1]:null, extra};
+    const notReady = !!d && v==null && TEMP_KEYS.has(pid);
+    out[pid] = {ok:true, raw:hex(b), v, label:d?d[0]:null, unit:d?d[1]:null, extra: notReady ? 'sensor not ready, ignored' : extra};
     if (pid==='9B' && v!=null) show('adblue', v);
   }
   const bv = await readVolt(); out.BATT = {ok:bv!=null, v:bv, label:'Battery (at adapter)', unit:'V'};
+  if (inCrank()){ recordCrank(bv); out.BATT = {ok:true, v:null, raw:String(bv), label:'Battery (at adapter)', unit:'V', extra:'cranking dip '+bv+' V, ignored'}; }
   // learning + anomalies + dropouts
   const flags = [];
   for (const [k,o] of Object.entries(out)){
@@ -1208,17 +1219,18 @@ async function learningCheck(){ // light background sweep while driving: learn +
 }
 
 // ---------- engine on/off → automatic trip start/end ----------
-let tripOpen = false, offSince = null;
+let tripOpen = false, offSince = null, tripPausedAt = null, tripStops = [];
+let TRIP_STOP_MS = 30000, TRIP_MERGE_MS = 10*60*1000;     // engine off > 30 s = a logged stop; restart within 10 min = same trip (tests shrink these)
 function newTrip(){
   trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle();
   dpf = {active:false, src:null, since:null, km0:null, trigger:dpf.trigger, egt:null, flag8B:null, susp:0, tripRegen:false, logged8B:dpf.logged8B};
-  tripOpen = true; offSince = null;
+  tripOpen = true; offSince = null; tripPausedAt = null; tripStops = [];
 }
 function endTrip(reason){
   if (!tripOpen) return;
   if (dpf.active) logRegen(false);                      // engine stopped mid-regen = interrupted
   saveTrip(); trainModel(); store.set('idleBase', idleBase);
-  tripOpen = false; dpf.active = false; dpf.tripRegen = false; renderDpf(); renderLearned();
+  tripOpen = false; tripPausedAt = null; dpf.active = false; dpf.tripRegen = false; renderDpf(); renderLearned();
   log('Trip ended ('+reason+')');
 }
 function engineWatch(){
@@ -1226,14 +1238,39 @@ function engineWatch(){
   if (on){
     offSince = null;
     if (!tripOpen){ newTrip(); setStatus('Connected · trip running','on'); log('Engine on → new trip'); }
+    else if (tripPausedAt){                                               // restart within the merge window: same trip, the stop stays in the log
+      const st = tripStops[tripStops.length-1]; if (st) st.secs = Math.round((Date.now()-tripPausedAt)/1000);
+      log('Engine restarted after '+Math.round((Date.now()-tripPausedAt)/1000)+' s → same trip'); tripPausedAt = null; setStatus('Connected · trip running','on'); }
   } else if (tripOpen){
     offSince = offSince || Date.now();
-    if (Date.now() - offSince > 30000){ endTrip('engine off 30s'); setStatus('Engine off · trip saved','on'); }
+    if (!tripPausedAt && Date.now() - offSince > TRIP_STOP_MS){
+      tripPausedAt = offSince; tripStops.push({t:new Date(offSince).toISOString(), secs:null}); log('Engine off → stop logged (a restart within '+Math.round(TRIP_MERGE_MS/60000)+' min continues this trip)');
+      setStatus('Engine off · trip paused','on'); }
+    if (tripPausedAt && Date.now() - offSince > TRIP_MERGE_MS){ endTrip('engine off '+Math.round(TRIP_MERGE_MS/60000)+' min'); setStatus('Engine off · trip saved','on'); }
   }
 }
 
 // ---------- battery health ----------
-let batt = store.get('batt', []);
+let batt = store.get('batt', []), crankLog = store.get('crank', []), crankCur = null, startAt = null, engineWas = null;
+const CRANK_WINDOW_MS = 10000;
+// Engine start = rpm rising from ~0 (cranking) after it was off. Volts read inside the 10 s after that are the cranking dip.
+function trackStart(){
+  const off = (latest.rpm||0) < 50;
+  if (engineWas === true && !off) startAt = Date.now();
+  engineWas = off;
+}
+const inCrank = () => startAt != null && Date.now() - startAt <= CRANK_WINDOW_MS;
+function recordCrank(v){
+  if (v==null || v < 5 || v > 16) return;
+  if (!crankCur || crankCur.startAt !== startAt){ crankCur = {date:new Date().toISOString(), v, n:1, startAt}; crankLog.push(crankCur); crankLog = crankLog.slice(-60); }
+  else { crankCur.v = Math.min(crankCur.v, v); crankCur.n++; }
+  store.set('crank', crankLog.map(({date,v,n})=>({date,v,n}))); renderBattery();
+}
+// one place decides where an ATRV sample goes
+function handleVolt(v){
+  if (inCrank()){ recordCrank(v); return false; }       // not shown, not learned, no low-battery alert
+  latest.volt = v; show('volt', v); return true;
+}
 function recordBattery(v){
   if (v==null || v < 8 || v > 16) return;
   batt.push({date:new Date().toISOString(), v}); batt = batt.slice(-60); store.set('batt', batt);
@@ -1241,14 +1278,15 @@ function recordBattery(v){
 }
 function renderBattery(){
   const el = $('battInfo'); if (!el) return;
-  if (!batt.length){ el.innerHTML = 'Reads the battery each time you Connect <b>before starting the engine</b>. Healthy: 12.4 V or more.'; return; }
+  const crank = crankLog.length ? '<br>Crank voltage (lowest dip while starting): ' + crankLog.slice(-5).reverse().map(c=>`<b style="color:var(--txt)">${c.v.toFixed(1)} V</b> ${new Date(c.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`).join(' · ') + ' <span>(a healthy 12 V battery stays above ~9.6 V)</span>' : '';
+  if (!batt.length){ el.innerHTML = 'Reads the battery each time you Connect <b>before starting the engine</b>. Healthy: 12.4 V or more.' + crank; return; }
   const last = batt[batt.length-1], prev = batt.slice(-6,-1);
   const st = last.v >= 12.4 ? ['Good','var(--ok)'] : last.v >= 12.2 ? ['OK, a bit low','var(--warn)'] : ['LOW: weak or undercharged','var(--bad)'];
   let trend = '';
   if (prev.length >= 3){ const avg = prev.reduce((a,b)=>a+b.v,0)/prev.length; const d = last.v-avg; if (Math.abs(d) >= 0.15) trend = d < 0 ? ' · trending <b>down</b>' : ' · trending up'; }
   el.innerHTML = `Before start: <b style="color:${st[1]}">${last.v.toFixed(1)} V, ${st[0]}</b>${trend}<br>`
     + batt.slice(-5).reverse().map(b=>`${new Date(b.date).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}: ${b.v.toFixed(1)} V`).join(' · ')
-    + `<br><span>The adapter reads ~0.1–0.2 V low. Best test: car off for 1 h+, then ignition on, Connect, don't start yet.</span>`;
+    + crank + `<br><span>The adapter reads ~0.1–0.2 V low. Best test: car off for 1 h+, then ignition on, Connect, don't start yet.</span>`;
   if (last.v < 12.2) setStatus('⚠ Battery '+last.v.toFixed(1)+' V before start: low', 'busy');
 }
 
@@ -1315,11 +1353,13 @@ async function connect(){
     setStatus('Choose the adapter…','busy');
     port = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds:[SPP], filters:[{bluetoothServiceClassId:SPP}] });
     for (let i=1;;i++){ try{ await port.open({ baudRate: 38400 }); break; } catch(e){ if (i>=3){ openFailed = true; throw e; } log('Open attempt '+i+' failed, retrying… (press the iCar2 button if its light is off)'); setStatus('Waking adapter… press its button','busy'); await new Promise(r=>setTimeout(r,2000)); } }
+    samples = samples.filter(s=>!s.demo); $('btnCsv').disabled = !samples.length; $('logInfo').textContent = samples.length ? samples.length+' samples. Logs ~1 sample/second while connected.' : '0 samples. Logs ~1 sample/second while connected.';   // nothing demo-made stays when a real connection starts
     writer = port.writable.getWriter(); reader = port.readable.getReader(); buf=''; fuelReset();
     await initElm();
     await detectSupport();
-    tripOpen = false; offSince = null;
+    tripOpen = false; offSince = null; tripPausedAt = null; startAt = null; engineWas = null;
     try{ const rb = await rawPid('0C'); const rpm0 = rb ? ((rb[0]*256)+rb[1])/4 : 0;
+         engineWas = rpm0 < 50;
          const v0 = await readVolt(); latest.volt = v0; show('volt', v0);
          if (rpm0 < 300){ recordBattery(v0); log('Battery before start: '+(v0!=null?v0.toFixed(1)+' V':'n/a')); }
          else log('Engine already running, battery pre-start check skipped'); }catch(e){ log('Battery check failed: '+e.message); }
@@ -1348,6 +1388,7 @@ async function stop(msg){
     fuelReset(); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); renderStyle();
     dpf = {active:false, src:null, since:null, km0:null, trigger:null, egt:null, flag8B:null, susp:0, tripRegen:false, logged8B:dpf.logged8B}; renderDpf();
     $('fuelMethod').textContent = 'Fuel source: detected on connect.';
+    samples = samples.filter(s=>!s.demo); $('btnCsv').disabled = !samples.length; $('logInfo').textContent = samples.length+' samples. Logs ~1 sample/second while connected.';
   }
   renderIdle();
 }

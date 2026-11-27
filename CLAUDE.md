@@ -46,6 +46,12 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - Scan verdict has an `info` level. Engine already running at scan time -> "Connect before starting the engine for a battery reading" (no fake battery-before-start). The scan re-reads rpm/speed/coolant first so the state is right even before the loop's first pass.
 - Mock (`tests/mock-adapter.js`): the long PIDs answer multi-frame from the engine ECU then again from the gearbox ECU (filler 0xEE, must never win); 8B/78/7A carry real structure (`__mock.dpfTrigPct`, `dpfRegen`, `egtC`); 9B/A4/77/67/A2 use the real raw values.
 
+### v6.0.5 data hygiene (items 5-8)
+- Temperatures: `tempC(raw)` -> null for raw 255 (0xFF = sensor not ready; oil showed 215 C after each restart) and anything outside -40..150 C. Used by PIDS (coolant/iat/oil/amb) and every temperature decoder; `show()` also refuses them on the tiles; `learnValue` never learns them; the scan keeps them as raw only ("sensor not ready, ignored"). Exhaust temps (PID 78) are legitimately hot and not clamped.
+- Trips: engine off > `TRIP_STOP_MS` (30 s) = a logged stop, the trip is PAUSED (status "trip paused", nothing saved). A restart within `TRIP_MERGE_MS` (10 min) continues the same trip ("same trip" log line, `trip.stops` records each stop and its length). Only after 10 min off (or Stop / connection lost) is it saved. Tests shrink both with `TRIP_STOP_MS = ...; TRIP_MERGE_MS = ...`.
+- Demo never logs samples (`record()` returns early, CSV disabled); a real connect and Stop-after-Demo purge any `demo`-tagged samples.
+- Battery: `trackStart()` notes the rpm rise from ~0; `handleVolt(v)` is the single place ATRV samples go. Within 10 s of start (`CRANK_WINDOW_MS`) a sample is a cranking dip: kept in `kobd_crank` (lowest per start) and shown in the Car tab battery panel as "Crank voltage", never on the tile, in `latest.volt`, in pidStats or alerts. `sweep()` ignores ATRV and PID 42 during the window. Mock: `__mock.crankUntil`, `__mock.oilRaw`.
+
 ## Fuel & range (v6.0.2)
 - Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
 - Auto fill-up: level +10 points (vs last session, or vs the lowest of the last 10 min) -> `kobd_fillPending`; the Drive card appears only after 8 s stationary. A fill to >= 92 % with a receipt feeds `recordFill()` (pump calibration); smaller top-ups are only logged. Demo never writes fuel data.
@@ -67,7 +73,8 @@ Never push without OK. Everything stays on-device: no logos/images from the web,
 - `tests/test_fuel.py`: fuel left (PID 2F x tank), range (last ~50 mi / this trip / 45 mpg, all-time), low-fuel colours, smoothing, Big-mode coolant/range swap, auto fill-up detection + receipt prompt + calibration.
 - `tests/test_readability.py`: the hard readability floors above, 11 viewports x 8 states (incl. hot coolant) x 2 themes.
 - `tests/test_isotp.py`: ISO-TP parser (spaces/no spaces, two ECUs), all 14 long PIDs through the mock, DPF/EGT/dP decode, health scan (nothing silent), experimental decoders, AdBlue tile, coolant rule, battery-reading message.
+- `tests/test_robust.py`: tempC / 0xFF / >150 C never shown or learned, short-stop trip merging (+ stops list), demo samples out of the CSV, cranking-dip voltage kept apart.
 - `tests/test_v604.py`: visualViewport sizing, idle/last-trip/last-known after Stop + Demo, hint row, hot-coolant hysteresis in every mode.
-- `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ -> on; pre-start battery, auto health scan, trip saved, new trip. ~1.5 min (real timers).
+- `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ (paused) -> on (same trip) -> off past the merge window (saved once, 2 stops) -> on (new trip); pre-start battery, auto health scan. ~1.5 min (real timers).
 - `tests/run.sh` runs all; `FAST=1 tests/run.sh` skips the engine cycle.
 - The mock honours ATS0 (no spaces in replies); the app depends on that.
