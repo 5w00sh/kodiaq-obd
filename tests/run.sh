@@ -10,4 +10,5 @@ python3 test_dtc.py
 python3 test_theme_splash.py
 python3 test_fuel.py
 python3 test_readability.py
+python3 test_v604.py
 [ -n "$FAST" ] || python3 test_engine_cycle.py

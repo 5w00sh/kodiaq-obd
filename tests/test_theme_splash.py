@@ -98,15 +98,15 @@ with app(viewport=(412, 915)) as page:
 with app(viewport=(412, 915)) as page:
     page.click('nav button[data-p="log"]'); page.wait_for_timeout(400)
     ver = page.inner_text("#verNote")
-    check("v6.0.3" in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")
+    check("v"+page.evaluate("APP_VERSION") in ver and page.is_visible("#verNote"), f"version visible on a phone, Log tab footer: '{ver.strip()}'")
 
 # ---- Stage 1 polish ----
 with app(viewport=(412, 915)) as page:
     # empty state
     check(page.is_visible("#emptyHint") and "Ignition on → Connect · or tap Demo" in page.inner_text("#emptyHint"), "not connected: centred hint shown")
-    box, ph = page.locator("#emptyHint div").bounding_box(), page.locator("#p_drive").bounding_box()
-    check(abs((box["x"] + box["width"]/2) - (ph["x"] + ph["width"]/2)) < 2 and abs((box["y"] + box["height"]/2) - (ph["y"] + ph["height"]/2)) < 2, "hint is centred on the Drive pane")
-    check(box["height"] < 64, f"hint fits on one line ({box['height']:.0f}px tall)")
+    box, ph, dr = page.locator("#emptyHint").bounding_box(), page.locator("#p_drive").bounding_box(), page.locator(".drive").bounding_box()
+    check(abs((box["x"] + box["width"]/2) - (ph["x"] + ph["width"]/2)) < 2 and box["y"] + box["height"] <= dr["y"] + 1, "hint is its own row, centred, above the tile grid (v6.0.4: never over a tile)")
+    check(box["height"] < 40, f"hint fits on one line ({box['height']:.0f}px tall)")
     page.wait_for_timeout(500); page.screenshot(path=str(OUT / "empty-state.png"))
     # no focus ring after a tap, ring for keyboard
     page.click('nav button[data-p="style"]'); page.click('nav button[data-p="drive"]')

@@ -1,6 +1,6 @@
 """Test 10: Drive-tab READABILITY FLOORS. Measures rendered sizes and FAILS if anything is smaller than the minimums, at every
-viewport (360x760, 760x360, 412x915, 915x412, 800x1280, 1280x800), both themes, normal + Big mode, with the DPF regen banner showing
-(and with the fill-up card on top of it). If something can't fit, the app drops tiles; it must never shrink text.
+viewport (360x760, 760x360, 412x915, 915x412, 800x1280, 1280x800 + the system-bar sizes 800x1100, 1280x700, 412x840, 360x690, 760x320), both themes, normal + Big mode, with the DPF regen banner showing
+(and with the fill-up card on top of it, and with hot coolant forcing the coolant tile on). If something can't fit, the app drops tiles; it must never shrink text.
 
   Speed digits   >= 72 px tall (real digit ink height, via canvas) on phones, >= 96 px on tablets; speed is the largest number
   Range miles, Trip average   >= 56 px      Small tiles' main figures >= 32 px
@@ -8,7 +8,8 @@ viewport (360x760, 760x360, 412x915, 915x412, 800x1280, 1280x800), both themes, 
 """
 from common import app, check, OUT
 
-VIEWPORTS = [(360, 760), (760, 360), (412, 915), (915, 412), (800, 1280), (1280, 800)]
+VIEWPORTS = [(360, 760), (760, 360), (412, 915), (915, 412), (800, 1280), (1280, 800),
+             (800, 1100), (1280, 700), (412, 840), (360, 690), (760, 320)]      # v6.0.4: visible sizes with system bars (status bar + taskbar)
 JS = """(big) => {
   const bad = [], info = {}, phone = Math.min(innerWidth, innerHeight) < 700, pane = document.getElementById('p_drive');
   const shown = el => !!el && getComputedStyle(el).display !== 'none' && el.getClientRects().length > 0;
@@ -42,7 +43,10 @@ JS = """(big) => {
   // --- range + trip average >= 56 ---
   const rg = document.querySelector('#t_range .num'); if (!shown(rg)) bad.push('Range tile missing');
   else { info.rangeFont = fs(rg); if (fs(rg) < 56) bad.push('range miles ' + fs(rg).toFixed(0) + 'px < 56'); }
-  const tr = document.querySelector('#t_mpgTrip .val'); if (!shown(tr)) bad.push('Trip average tile missing');
+  const hotc = pane.classList.contains('hotc'), dr = pane.querySelector('.drive').getBoundingClientRect(), land = dr.width >= dr.height;
+  const cool = document.getElementById('t_coolant');
+  if (hotc && !shown(cool)) bad.push('hot coolant (> 105 C) is not visible');        // v6.0.4: forced visible in every mode and viewport
+  const tr = document.querySelector('#t_mpgTrip .val'); if (!shown(tr)) { if (!(hotc && shown(cool))) bad.push('Trip average tile missing'); }   // hot coolant may take its place
   else { info.tripFont = fs(tr); if (fs(tr) < 56) bad.push('trip average ' + fs(tr).toFixed(0) + 'px < 56'); }
   // --- small tiles >= 32 ---
   const small = [...pane.querySelectorAll('.sm')].filter(shown); info.small = small.map(t => t.id.slice(2)).join(',');
@@ -61,7 +65,7 @@ JS = """(big) => {
   // --- labels >= 12, never truncated ---
   if (!big) for (const l of pane.querySelectorAll('.lab')) if (shown(l)) { if (fs(l) < 12) bad.push(l.textContent + ' label ' + fs(l) + 'px < 12'); if (l.scrollWidth > l.clientWidth + 1) bad.push('label truncated: ' + l.textContent); }
   // --- Big mode tile set ---
-  if (big) for (const id of ['t_mpgInst']) if (!shown(document.getElementById(id))) bad.push(id + ' missing in big mode');
+  if (big && (land ? dr.height > 210 : dr.height > 414) && !shown(document.getElementById('t_mpgInst'))) bad.push('t_mpgInst missing in big mode');   // below that the small row is dropped by design (never shrink text)
   info.tiles = tiles.length;
   return {bad, info};
 }"""
@@ -70,7 +74,9 @@ STATES = [
     ("normal",            "ds = 0; window.__forceFill = false; window.__forceHot = false", False, False),
     ("regen banner",      "ds = 13", False, True),
     ("regen + fill card", "ds = 13; window.__forceFill = true", False, True),
-    ("big + regen",       "ds = 13; window.__forceFill = false; if (!document.getElementById('p_drive').classList.contains('big')) document.getElementById('btnBig').click()", True, True),
+    ("hot coolant",       "ds = 0; window.__forceFill = false; window.__forceHot = true", False, False),
+    ("hot + regen + fill","ds = 13; window.__forceFill = true; window.__forceHot = true", False, True),
+    ("big + regen",       "ds = 13; window.__forceFill = false; window.__forceHot = false; if (!document.getElementById('p_drive').classList.contains('big')) document.getElementById('btnBig').click()", True, True),
     ("big",               "ds = 0", True, False),
     ("big + hot coolant", "ds = 0; window.__forceHot = true", True, False),
 ]

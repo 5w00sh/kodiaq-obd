@@ -1,7 +1,8 @@
 """Test 3: layouts. Demo mode at four viewports; fail on Drive-tab overflow, clipped tiles or JS errors."""
 from common import app, check, OUT
 
-VIEWPORTS = [(412, 915), (915, 412), (800, 1280), (1280, 800), (360, 760), (760, 360)]   # last two: Galaxy S10
+VIEWPORTS = [(412, 915), (915, 412), (800, 1280), (1280, 800), (360, 760), (760, 360),     # 360x760 / 760x360: Galaxy S10
+             (800, 1100), (1280, 700), (412, 840), (360, 690), (760, 320)]                  # v6.0.4: real visible sizes with Android status bar + taskbar
 JS = """() => {
   const bad = [], pane = document.getElementById('p_drive'), de = document.scrollingElement;
   if (pane.scrollHeight > pane.clientHeight + 1) bad.push(`Drive pane scrolls (${pane.scrollHeight}>${pane.clientHeight})`);

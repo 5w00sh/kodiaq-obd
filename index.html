@@ -59,6 +59,21 @@
   window.addEventListener('load', refreshLoc);
 })();
 </script>
+<script>
+/* Visible-viewport sizing (v6.0.4). An installed PWA on Android sits under the status bar and beside/above a taskbar; 100%/100vh and the
+   initial containing block can be taller than what is really visible. --vh follows the smaller of innerHeight and visualViewport. */
+(function(){
+  const r = document.documentElement, vv = window.visualViewport; let last = '';
+  function size(){
+    let h = innerHeight; if (vv && vv.height) h = Math.min(h, vv.height * (vv.scale || 1));
+    h = Math.round(h); if (!(h > 100)) return; const v = h + 'px'; if (v === last) return; last = v; r.style.setProperty('--vh', v);
+  }
+  size(); addEventListener('resize', size); addEventListener('orientationchange', size); addEventListener('pageshow', size);
+  document.addEventListener('visibilitychange', size);
+  if (vv){ vv.addEventListener('resize', size); vv.addEventListener('scroll', size); }
+  [150, 600, 1500].forEach(t => setTimeout(size, t));       // the system bars settle after first paint
+})();
+</script>
 
 <link rel="icon" href="icon.svg">
 <style>
@@ -72,11 +87,13 @@
   :root{--hdr:60px;--nav:64px;--gap:10px;--r:16px;--r-s:12px;
     --fs-xs:11px;--fs-s:13px;--fs-m:15px;--fs-l:18px;--fs-xl:22px;--ease:cubic-bezier(.2,.7,.2,1);--t:.22s}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--txt);font:var(--fs-m)/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;overflow:hidden;
+  :root{--vh:100vh}
+  @supports (height:100dvh){ :root{--vh:100dvh} }
+  html{height:var(--vh);overflow:hidden}
+  body{position:fixed;left:0;top:0;width:100%;height:var(--vh);margin:0;background:var(--bg);color:var(--txt);font:var(--fs-m)/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;overflow:hidden;
     transition:background-color var(--t),color var(--t);-webkit-font-smoothing:antialiased}
   /* header */
-  header{position:fixed;inset:0 0 auto 0;height:calc(var(--hdr) + env(safe-area-inset-top));padding:env(safe-area-inset-top) 14px 0;display:flex;align-items:center;gap:10px;background:var(--bg);border-bottom:1px solid var(--line);z-index:5;transition:background-color var(--t),border-color var(--t)}
+  header{position:absolute;inset:0 0 auto 0;height:calc(var(--hdr) + env(safe-area-inset-top));padding:env(safe-area-inset-top) max(14px,env(safe-area-inset-right)) 0 max(14px,env(safe-area-inset-left));display:flex;align-items:center;gap:10px;background:var(--bg);border-bottom:1px solid var(--line);z-index:5;transition:background-color var(--t),border-color var(--t)}
   h1{font-size:var(--fs-l);font-weight:700;letter-spacing:-.01em;margin:0;white-space:nowrap}
   h1 small{font-size:var(--fs-xs);color:var(--mut);font-weight:500;margin-left:4px}
   .dot{width:10px;height:10px;border-radius:50%;background:var(--bad);flex:none;transition:background-color var(--t),box-shadow var(--t)}
@@ -88,11 +105,11 @@
   #btnTheme svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:none}
   html[data-mode=auto] #btnTheme .i-auto,html[data-mode=day] #btnTheme .i-day,html[data-mode=night] #btnTheme .i-night{display:block}
   /* bottom tabs */
-  nav{position:fixed;inset:auto 0 0 0;height:calc(var(--nav) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);display:flex;background:var(--bg);border-top:1px solid var(--line);z-index:5;transition:background-color var(--t),border-color var(--t)}
+  nav{position:absolute;inset:auto 0 0 0;height:calc(var(--nav) + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);display:flex;background:var(--bg);border-top:1px solid var(--line);z-index:5;transition:background-color var(--t),border-color var(--t)}
   nav button{flex:1;border:0;border-radius:0;background:none;color:var(--mut);font-size:var(--fs-s);font-weight:600;letter-spacing:.01em;padding:0;min-width:0;position:relative;box-shadow:none;transition:color var(--t)}
   nav button::before{content:"";position:absolute;top:-1px;left:30%;right:30%;height:3px;border-radius:0 0 3px 3px;background:var(--acc);transform:scaleX(0);transition:transform var(--t) var(--ease)}
   nav button.sel{color:var(--acc)} nav button.sel::before{transform:scaleX(1)}
-  main{position:fixed;left:0;right:0;top:calc(var(--hdr) + env(safe-area-inset-top));bottom:calc(var(--nav) + env(safe-area-inset-bottom));overflow:hidden}
+  main{position:absolute;left:0;right:0;top:calc(var(--hdr) + env(safe-area-inset-top));bottom:calc(var(--nav) + env(safe-area-inset-bottom));overflow:hidden}
   .pane{position:absolute;inset:0;padding:var(--gap) max(var(--gap),env(safe-area-inset-left)) var(--gap) max(var(--gap),env(safe-area-inset-right));overflow-y:auto;display:none}
   .pane.sel{display:block;animation:paneIn .28s var(--ease)}
   @keyframes paneIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
@@ -147,16 +164,39 @@
     .drive .sm,#t_oil{grid-column:span 6}
   }
   /* tiers: lower-priority tiles appear only when the space is there (priority: instant, fuel flow, rpm, coolant, score, cost, oil) */
-  @container drive (max-aspect-ratio:1/1) and (min-height:478px){ #t_mpgInst,#t_lph{display:flex} }
-  @container drive (max-aspect-ratio:1/1) and (min-height:551px){ #t_rpm,#t_coolant{display:flex} }
-  @container drive (max-aspect-ratio:1/1) and (min-height:624px){ #t_score,#t_cost{display:flex} }
-  @container drive (max-aspect-ratio:1/1) and (min-height:697px){ #t_oil{display:flex} }
-  @container drive (min-aspect-ratio:1/1) and (max-width:879px) and (min-height:238px){ #t_mpgInst,#t_lph,#t_rpm,#t_coolant{display:flex} }
-  @container drive (min-aspect-ratio:1/1) and (max-width:879px) and (min-height:311px){ #t_score,#t_cost,#t_oil{display:flex} }
-  @container drive (min-aspect-ratio:1/1) and (min-width:880px) and (min-height:238px){ #t_mpgInst,#t_lph,#t_rpm,#t_coolant,#t_score,#t_cost{display:flex} .drive .sm,.drive #t_oil{grid-column:span 4} }
-  @container drive (min-aspect-ratio:1/1) and (min-width:880px) and (min-height:311px){ #t_oil{display:flex} }
-  @media (min-width:700px) and (min-height:700px){ .drive .sm{display:flex} }                      /* tablets: room for everything */
+  /* Phone tiers: row heights are the phone tokens (65 px small rows). Tablet tiers below use the tablet tokens (90 px rows), so a tablet whose real
+     visible height is less than its nominal one (system bars) drops the lowest-priority rows instead of overflowing. */
+  @media (max-width:699px),(max-height:699px){
+    @container drive (max-aspect-ratio:1/1) and (min-height:478px){ #t_mpgInst,#t_lph{display:flex} }
+    @container drive (max-aspect-ratio:1/1) and (min-height:551px){ #t_rpm,#t_coolant{display:flex} }
+    @container drive (max-aspect-ratio:1/1) and (min-height:624px){ #t_score,#t_cost{display:flex} }
+    @container drive (max-aspect-ratio:1/1) and (min-height:697px){ #t_oil{display:flex} }
+    @container drive (min-aspect-ratio:1/1) and (max-width:879px) and (min-height:238px){ #t_mpgInst,#t_lph,#t_rpm,#t_coolant{display:flex} }
+    @container drive (min-aspect-ratio:1/1) and (max-width:879px) and (min-height:311px){ #t_score,#t_cost,#t_oil{display:flex} }
+    @container drive (min-aspect-ratio:1/1) and (min-width:880px) and (min-height:238px){ #t_mpgInst,#t_lph,#t_rpm,#t_coolant,#t_score,#t_cost{display:flex} .drive .sm,.drive #t_oil{grid-column:span 4} }
+    @container drive (min-aspect-ratio:1/1) and (min-width:880px) and (min-height:311px){ #t_oil{display:flex} }
+  }
+  @media (min-width:700px) and (min-height:700px){
+    @container drive (max-aspect-ratio:1/1) and (min-height:647px){ #t_mpgInst,#t_lph{display:flex} }
+    @container drive (max-aspect-ratio:1/1) and (min-height:749px){ #t_rpm,#t_coolant{display:flex} }
+    @container drive (max-aspect-ratio:1/1) and (min-height:851px){ #t_score,#t_cost{display:flex} }
+    @container drive (max-aspect-ratio:1/1) and (min-height:953px){ #t_oil{display:flex} }
+    @container drive (min-aspect-ratio:1/1) and (min-height:307px){ #t_mpgInst,#t_lph,#t_rpm,#t_coolant{display:flex} }
+    @container drive (min-aspect-ratio:1/1) and (min-height:409px){ #t_score,#t_cost,#t_oil{display:flex} }
+  }
   @media (min-width:700px) and (min-height:700px) and (orientation:landscape){ .drive .sm{grid-column:span 6} .drive #t_oil{grid-column:span 12} }
+  /* HOT COOLANT (> 105 C, clears <= 103): the coolant tile is shown in every mode and viewport. Where the tiers above would drop it, it takes
+     Trip average's place (an overheating engine outranks a trip figure) and needs no extra height. In Big mode it replaces fuel flow instead
+     (rules further down), or Trip average when even that row does not fit. */
+  #p_drive.hotc #fillCard,#p_drive.fillhide #fillCard{display:none!important}
+  @media (max-width:699px),(max-height:699px){
+    @container drive (max-aspect-ratio:1/1) and (not (min-height:551px)){ #p_drive.hotc:not(.big) #t_mpgTrip{display:none!important} #p_drive.hotc:not(.big) #t_coolant{display:flex!important;grid-row:3;grid-column:1/-1} }
+    @container drive (min-aspect-ratio:1/1) and (not (min-height:238px)){ #p_drive.hotc:not(.big) #t_mpgTrip{display:none!important} #p_drive.hotc:not(.big) #t_coolant{display:flex!important;grid-row:1;grid-column:18/span 7} }
+  }
+  @media (min-width:700px) and (min-height:700px){
+    @container drive (max-aspect-ratio:1/1) and (not (min-height:749px)){ #p_drive.hotc:not(.big) #t_mpgTrip{display:none!important} #p_drive.hotc:not(.big) #t_coolant{display:flex!important;grid-row:3;grid-column:1/-1} }
+    @container drive (min-aspect-ratio:1/1) and (not (min-height:307px)){ #p_drive.hotc:not(.big) #t_mpgTrip{display:none!important} #p_drive.hotc:not(.big) #t_coolant{display:flex!important;grid-row:1;grid-column:18/span 7} }
+  }
   /* big mode: no labels; speed, range, trip average, instant, fuel flow. Coolant only when hot (> 105 C), in fuel flow's place. */
   #p_drive.big .lab{display:none}
   #p_drive.big .tile{padding:4px 14px}
@@ -166,13 +206,15 @@
   #p_drive.big #t_remain,#p_drive.big #t_rpm,#p_drive.big #t_score,#p_drive.big #t_oil,#p_drive.big #t_cost,#p_drive.big #t_coolant{display:none!important}
   #p_drive.big #t_mpgInst,#p_drive.big #t_lph{display:flex!important}
   #p_drive.big.hotc #t_coolant{display:flex!important}
-  #p_drive.hotc #fillCard{display:none!important}      /* a hot engine outranks the fill-up prompt for space */
   #p_drive.big.hotc #t_lph{display:none!important}
   #p_drive.big .drive{grid-template-rows:minmax(var(--h-spd),1.3fr) minmax(var(--h-trip),1fr) minmax(var(--h-trip),1fr);grid-auto-rows:minmax(var(--h-sm),.8fr)}
   #p_drive.big #t_range{flex:1 1 0}
   @media (orientation:landscape){ #p_drive.big .drive{grid-template-rows:minmax(var(--h-spd),1.3fr);grid-auto-rows:minmax(var(--h-sm),.7fr)} }
   @container drive (max-aspect-ratio:1/1) and (max-height:414px){ #p_drive.big #t_mpgInst,#p_drive.big #t_lph,#p_drive.big #t_coolant{display:none!important} }   /* too short for the small row: drop it, never shrink text */
   @container drive (min-aspect-ratio:1/1) and (max-height:210px){ #p_drive.big #t_mpgInst,#p_drive.big #t_lph,#p_drive.big #t_coolant{display:none!important} }
+  /* ...except hot coolant: with no room for the small row it takes Trip average's place */
+  @container drive (max-aspect-ratio:1/1) and (max-height:414px){ #p_drive.big.hotc #t_mpgTrip{display:none!important} #p_drive.big.hotc #t_coolant{display:flex!important;grid-row:3;grid-column:1/-1} }
+  @container drive (min-aspect-ratio:1/1) and (max-height:210px){ #p_drive.big.hotc #t_mpgTrip{display:none!important} #p_drive.big.hotc #t_coolant{display:flex!important;grid-row:1;grid-column:18/span 7} }
   #btnBig{position:absolute;top:8px;right:8px;z-index:3;width:38px;height:38px;min-width:0;padding:0;display:grid;place-items:center;border-radius:50%;background:var(--card2);opacity:.9}
   #btnBig svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #p_drive.big #btnBig{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
@@ -205,14 +247,17 @@
   /* adapter-asleep message: on top of every tab until the next Connect */
   #asleep{position:absolute;left:var(--gap);right:var(--gap);top:var(--gap);z-index:4;display:none;gap:14px;align-items:center;background:var(--warnBg);border:2px solid var(--warn);color:var(--warnTxt);border-radius:var(--r);padding:16px 18px;font-size:var(--fs-l);font-weight:700;line-height:1.3;box-shadow:0 10px 32px #0008;animation:paneIn .3s var(--ease)}
   #asleep.show{display:flex;cursor:pointer}
-  #emptyHint{position:absolute;inset:0;z-index:2;display:grid;place-items:center;pointer-events:none;padding:var(--gap);text-align:center}
-  #emptyHint div{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 20px;font-size:clamp(14px,4vw,20px);font-weight:700;line-height:1.35;white-space:nowrap;box-shadow:var(--shadow),0 8px 30px #0005;max-width:90%}
-  #emptyHint small{display:block;font-size:var(--fs-s);font-weight:500;color:var(--mut);margin-top:4px}
+  /* "Ignition on -> Connect" hint: its own row above the tile grid (never over a tile), only while not connected */
+  #emptyHint{flex:none;text-align:center;padding:0 4px;margin-bottom:6px;font-size:var(--fs-s);font-weight:600;line-height:1.3;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media (min-width:700px){ #emptyHint{margin-bottom:8px} }
+  /* last-trip / last-known figures: same tile, the label says what they are */
+  .tile.stale .lab{color:var(--acc)}
+  #p_drive.big .tile.stale .lab{display:block}
   body.live #emptyHint,main:has(#asleep.show) #emptyHint{display:none}
   #asleep svg{flex:none;width:34px;height:34px;fill:none;stroke:var(--warn);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   #asleep small{display:block;font-weight:500;font-size:var(--fs-s);opacity:.85;margin-top:4px}
   /* ===== startup splash ===== */
-  #splash{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vmin;cursor:pointer;transition:opacity .35s ease;overflow:hidden}
+  #splash{position:absolute;inset:0;z-index:50;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2vmin;cursor:pointer;transition:opacity .35s ease;overflow:hidden}
   #splash.out{opacity:0;pointer-events:none}
   #splash svg{width:min(74vw,46vh,420px);height:auto;overflow:visible;filter:drop-shadow(0 0 7px color-mix(in srgb,var(--acc) 55%,transparent))}
   #splash .ticks{fill:none;stroke:var(--mut);stroke-width:5;stroke-dasharray:1.6 9.8;opacity:.0;animation:spTicks .8s .1s forwards}
@@ -285,7 +330,7 @@
   <div class="pane sel" id="p_drive">
     <div id="regen"></div>
     <div id="fillCard" role="status"><span id="fillTxt"></span><input id="fillLit" type="number" inputmode="decimal" step="0.1" min="1" max="80" placeholder="Litres from receipt?" aria-label="Litres from receipt"><button class="pri" id="fillSave">Save</button><button id="fillSkip">Skip</button></div>
-    <div id="emptyHint"><div>Ignition on → Connect · or tap Demo</div></div>
+    <div id="emptyHint">Ignition on → Connect · or tap Demo</div>
     <div class="drive">
     <button id="btnBig" aria-label="Big mode" aria-pressed="false" title="Big mode: hide labels, maximise numbers"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <div class="tile hero na" id="t_speed"><div class="lab">Speed</div><div class="val">–<span class="unit">mph</span></div></div>
@@ -457,6 +502,7 @@ function log(s){ const p=$('log'); p.textContent += s + '\n'; if (p.textContent.
 function setStatus(txt, state){ $('status').textContent = txt; $('dot').className = 'dot ' + (state||''); }
 function ui(connected){
   document.body.classList.toggle('live', connected);
+  if (connected) for (const id in STALE) setStale(id, false);
   $('btnConnect').disabled = connected; $('btnDemo').disabled = connected;
   $('btnStop').disabled = !connected;
   $('btnRead').disabled = !connected; $('btnClear').disabled = !connected; $('btnScan').disabled = !connected;
@@ -597,6 +643,12 @@ function integrate(speedKmh, lphRaw){
 }
 function tripKm(){ return (trip.odo0!=null && odoKm!=null && odoKm-trip.odo0 >= 0.3) ? odoKm-trip.odo0 : trip.km; }
 function mpg(km, L){ return (km>0.05 && L>0) ? LKM_TO_MPG/((L/km)*100) : null; }
+function showCost(L, km){
+  const c = $('t_cost'), v = c.querySelector('.val');
+  if (!(L > 0)){ c.classList.add('na'); v.textContent = '–'; return; }
+  c.classList.remove('na'); const cost = L*price, ppm = km>0.1 ? (cost/(km/KM_PER_MILE))*100 : null;
+  v.innerHTML = '£'+cost.toFixed(2)+(ppm!=null ? '<span class="unit">'+ppm.toFixed(0)+'p/mi</span>' : '');
+}
 function renderFuel(speedKmh){
   const lph = curLph==null ? null : curLph*cal;
   show('lph', lph, 1);
@@ -606,9 +658,7 @@ function renderFuel(speedKmh){
   show('miles', tripKm()/KM_PER_MILE, 1);
   renderRange(); fillCardTick(); bigSwap();
   show('litres', trip.L, 2);
-  const c = $('t_cost'); const v = c.querySelector('.val');
-  if (trip.L > 0){ c.classList.remove('na'); const cost = trip.L*price; const ppm = tripKm()>0.1 ? (cost/(tripKm()/KM_PER_MILE))*100 : null;
-    v.innerHTML = '£'+cost.toFixed(2)+(ppm!=null ? '<span class="unit">'+ppm.toFixed(0)+'p/mi</span>' : ''); }
+  showCost(trip.L, tripKm());
   latest.mpgTrip = mpg(tripKm(), trip.L); latest.lph = lph;
   if (Math.random() < 0.05) store.set('sinceFill', sinceFill);
 }
@@ -834,6 +884,7 @@ function renderDpf(){
     b.innerHTML = `🔥 <b>DPF cleaning (regen) in progress</b>, ${mins.toFixed(0)} min so far. Keep driving if you can (ideally 50+ mph for 10–15 min). Avoid switching off.`;
     b.classList.add('show');
   } else b.classList.remove('show');
+  fitFill();
   show('dpf', dpf.trigger); show('egt', dpf.egt);
   const rs = $('t_regstate'); rs.classList.toggle('na', false); rs.querySelector('.val').textContent = dpf.active ? 'YES' : 'No';
   rs.classList.toggle('hot', dpf.active);
@@ -931,15 +982,17 @@ async function loop(){
           if (!running) break;
           if (unsupported.has(name) || (supportedPids.size && !supportedPids.has(p.pid))) { show(name,null); continue; }
           if (!p.fast && tick%5) continue;
-          const v = await readPid(name); latest[name]=v; show(name,v);
+          const v = await readPid(name); if (!running) break; latest[name]=v; show(name,v);
         }
+        if (!running) break;                                              // Stop pressed mid-read: never repaint over the cleared tiles
         if (tick%5===0) fuelSample(latest.fuel);
-        if (fuelMethod){ curLph = await readFuelLph(); }
+        if (fuelMethod){ curLph = await readFuelLph(); if (!running) break; }
         const dtH = integrate(latest.speed, curLph); styleUpdate(dtH);
         if (tick%8===0 && (supportedPids.has('8B') || supportedPids.has('78'))) await readDpf();
+        if (!running) break;
         dpfUpdate(dtH); renderFuel(latest.speed||0); renderStyle(); renderDpf(); if (tick%10===0) renderVsExpected();
         if (tick%20===0 && supportedPids.has('A6')){ const b = await rawPid('A6'); if (b && b.length>=4){ odoKm = (((b[0]<<24)>>>0) + (b[1]<<16) + (b[2]<<8) + b[3])/10; if (trip.odo0==null) trip.odo0 = odoKm; show('odo', odoKm/KM_PER_MILE); } }
-        if (tick%10===0){ const v = await readVolt(); latest.volt=v; show('volt',v); }
+        if (tick%10===0){ const v = await readVolt(); if (!running) break; latest.volt=v; show('volt',v); }
         engineWatch();
         if (!scanning && tick > 20 && Date.now() - lastSweep > 10*60*1000 && (carState()==='idle' || carState()==='drive')) await learningCheck();
       }
@@ -957,7 +1010,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.0.3';
+const APP_VERSION = '6.0.4';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>b[0]-40], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1267,10 +1320,16 @@ async function stop(msg){
   if (demo && _ibBackup){ idleBase = _ibBackup; _ibBackup = null; }
   if (!demo) endTrip('stopped');
   dpf.active = false; dpf.tripRegen = false; renderDpf();
-  running = false; demo = false;
+  const wasDemo = demo; running = false; demo = false;
   try{ reader?.releaseLock(); }catch{} try{ writer?.releaseLock(); }catch{}
   try{ await port?.close(); }catch{}
   port = reader = writer = null; ui(false); setStatus(msg||'Stopped'); wakeLock?.release?.();
+  if (wasDemo){                                                       // nothing the demo made may stay on screen
+    fuelReset(); trip = {km:0, L:0, idleL:0, t0:null, odo0:null}; lastInt = null; newStyle(); renderStyle();
+    dpf = {active:false, src:null, since:null, km0:null, trigger:null, egt:null, flag8B:null, susp:0, tripRegen:false, logged8B:dpf.logged8B}; renderDpf();
+    $('fuelMethod').textContent = 'Fuel source: detected on connect.';
+  }
+  renderIdle();
 }
 
 // ---------- demo ----------
@@ -1363,16 +1422,19 @@ function consumption(){                                                         
   return {lpm, basis, all, mpg:L_PER_GAL/lpm};
 }
 function rangeInfo(){
-  if (fuelMed==null) return null;
-  const left = fuelMed*tank/100, c = consumption(), fillL = Math.max(0, tank-left);
-  return {pct:fuelMed, left, lpm:c.lpm, basis:c.basis, miles:left/c.lpm, allMiles:c.all ? left/c.all : null, mpg:L_PER_GAL/c.lpm, fillL, cost:fillL*price};
+  let pct = fuelMed;
+  if (pct==null && !running){ const l = store.get('fuelLast', null); if (l && isFinite(l.pct)) pct = l.pct; }     // not connected: last known level
+  if (pct==null) return null;
+  const left = pct*tank/100, c = consumption(), fillL = Math.max(0, tank-left);
+  return {pct, left, lpm:c.lpm, basis:c.basis, miles:left/c.lpm, allMiles:c.all ? left/c.all : null, mpg:L_PER_GAL/c.lpm, fillL, cost:fillL*price};
 }
 function renderRange(){
   const t = $('t_range'), rm = $('t_remain'), r = rangeInfo(), c = consumption();
   t.classList.remove('hot','crit');
   t.querySelector('.val').innerHTML = '<span class="num">'+(r ? Math.round(r.miles) : '–')+'</span><span class="unit">mi</span><span class="basis">@'+Math.round(c.mpg)+' mpg</span>';
   t.classList.toggle('na', !r); rm.classList.toggle('na', !r);
-  if (!r){ $('remL').textContent = '–'; $('remCost').textContent = fuelUnsupported() ? 'no fuel level' : 'reading…'; }
+  setStale('t_range', !!r && !running); setStale('t_remain', !!r && !running);
+  if (!r){ $('remL').textContent = '–'; $('remCost').textContent = fuelUnsupported() ? 'no fuel level' : (running ? 'reading…' : '–'); }
   else {
     $('remL').textContent = Math.round(r.left)+' L ('+Math.round(r.pct)+'%)';
     $('remCost').textContent = r.fillL < 0.5 ? 'Full' : '£'+Math.round(r.cost)+' to full';
@@ -1392,6 +1454,24 @@ function setTank(){
   const v = parseFloat(prompt('Fuel tank size in litres (50–70). Kodiaq Mk1 facelift 2.0 TDI 4x4 DSG: 58', tank));
   if (v >= 50 && v <= 70){ tank = Math.round(v*2)/2; store.set('tank', tank); rangeAt = 0; renderRange(); } else if (!isNaN(v)) setStatusHint('Tank size must be 50–70 L');
 }
+// ---- not connected (load, after Stop, after Demo): live tiles are blanked; trip figures + range stay, labelled "last trip" / "last known" ----
+const STALE = {t_mpgTrip:['Trip average','Last trip avg'], t_cost:['Trip cost','Last trip cost'], t_range:['Range','Range · last known'], t_remain:['Estimated remaining','Remaining · last known']};
+function setStale(id, on){
+  const t = $(id), l = t.querySelector('.lab'), txt = STALE[id][on ? 1 : 0];
+  t.classList.toggle('stale', !!on); if (l.textContent !== txt) l.textContent = txt;
+}
+const LIVE_TILES = ['speed','rpm','mpgInst','lph','coolant','oil','load','throttle','iat','volt','amb','litres','egt'];
+function renderIdle(){
+  if (running) return;
+  latest = {}; curLph = null; hotCool = false;
+  for (const n of LIVE_TILES) show(n, null);
+  show('dpf', null); { const rs = $('t_regstate'); rs.classList.add('na'); rs.classList.remove('hot'); rs.querySelector('.val').textContent = '–'; }
+  { const t = $('t_score'), v = t.querySelector('.val'); t.classList.remove('hot','crit','wait'); t.classList.add('na'); v.firstChild.nodeValue = '–'; v.querySelector('.unit').textContent = '/100'; }
+  const last = tripsCache.length ? tripsCache[tripsCache.length-1] : null;
+  show('mpgTrip', last && last.mpg ? last.mpg : null, 1); setStale('t_mpgTrip', !!(last && last.mpg));
+  showCost(last ? last.litres : 0, last ? last.miles*KM_PER_MILE : 0); setStale('t_cost', !!(last && last.litres > 0));
+  renderRange(); bigSwap();
+}
 // Big mode: coolant is hidden unless it is hot (> 105 C); then it takes fuel flow's place until it cools below 103
 function bigSwap(){
   const c = latest.coolant; let h = hotCool;
@@ -1401,7 +1481,14 @@ function bigSwap(){
 }
 
 // ---- fill-up prompt: a card in the Drive tab, shown only while stationary, never blocks anything ----
-function fillCardTick(){
+// The fill-up card yields (hidden, still pending) when showing it would push the tile grid below its minimum height: regen warning > fill card > nothing else
+function fitFill(){
+  const p = $('p_drive'), c = $('fillCard'); p.classList.remove('fillhide');
+  if (c.classList.contains('show') && p.classList.contains('sel') && p.scrollHeight > p.clientHeight + 1) p.classList.add('fillhide');
+}
+addEventListener('resize', ()=>requestAnimationFrame(fitFill));
+function fillCardTick(){ fillCardTick1(); fitFill(); }
+function fillCardTick1(){
   const card = $('fillCard'), p = store.get('fillPending', null), now = performance.now(), v = latest.speed || 0;
   if (v >= 2) stillSince = null; else if (stillSince==null) stillSince = now;
   const forced = window.__forceFill, still = stillSince!=null && now - stillSince > 8000, show = !!forced || (!!p && !demo && running && still);   // never while moving
@@ -1441,6 +1528,7 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   if (b.dataset.p==='style') renderLearned();
   try{ localStorage.setItem('kobd_tab', b.dataset.p); }catch{}
 });
+renderIdle();                                                         // first paint: nothing live yet, last trip / last known figures
 try{ const t = localStorage.getItem('kobd_tab'); if (t) document.querySelector(`nav button[data-p="${t}"]`)?.click(); }catch{}
 </script>
 </body>
