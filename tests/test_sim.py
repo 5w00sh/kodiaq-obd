@@ -105,7 +105,7 @@ with app(viewport=(412, 915), mock=False) as page:
     check("low" in page.inner_text("#battInfo").lower() or "LOW" in page.inner_text("#battInfo"), "...and called low")
     wait(page, "crankLog.some(c => c.v < 9.5)", 60000); cr = [c for c in ls(page, "kobd_sim_crank") if c["v"] < 9.5]
     check(abs(cr[-1]["v"] - 8.9) < .11, f"cranking dip {cr[-1]['v']} V kept as crank voltage")
-    page.wait_for_timeout(2500); check(not txt(page, "#t_volt .val").startswith("8.9"), "...not shown on the battery tile")
+    page.wait_for_timeout(2500); check(not txt(page, "#t_volt .val").startswith("8.9"), f"...not shown on the battery tile (tile: {txt(page, '#t_volt .val')}, latest.volt {page.evaluate('latest.volt')}, startAt {page.evaluate('startAt')})")
     page.click("#btnStop"); page.wait_for_timeout(400)
     check(real_snapshot(page) == before, "after all 9 scenarios: REAL storage still byte-identical")
     check(not page.errors, "no JS errors in simulation mode" + ("" if not page.errors else ": " + "; ".join(page.errors)))

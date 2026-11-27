@@ -1605,9 +1605,12 @@ function recordCrank(v){
   store.set('crank', crankLog.map(({date,v,n})=>({date,v,n}))); renderBattery();
 }
 // one place decides where an ATRV sample goes
+let voltSkips = 0;
 function handleVolt(v){
   if (inCrank()){ recordCrank(v); return false; }       // not shown, not learned, no low-battery alert
-  latest.volt = v; show('volt', v); return true;
+  // the starter pulls the voltage down a moment BEFORE the rpm rise is seen: a sample > 1.5 V under the last reading with the engine still off is that dip (at most 2 in a row, so a real change still shows)
+  if (v != null && latest.volt != null && v < latest.volt - 1.5 && (latest.rpm||0) < 300 && voltSkips < 2){ voltSkips++; return false; }
+  voltSkips = 0; latest.volt = v; show('volt', v); return true;
 }
 function recordBattery(v){
   if (v==null || v < 8 || v > 16) return;
