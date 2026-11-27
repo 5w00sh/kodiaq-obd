@@ -11,7 +11,7 @@
    kobd_sim_ so real trips / learning / scans are never touched; leaving simulation (or any normal start) deletes every kobd_sim_ key. */
 var SIM = false; try{ SIM = sessionStorage.getItem('kobd_simMode') === '1'; }catch(e){}
 var KP = SIM ? 'kobd_sim_' : 'kobd_', realNow = Date.now.bind(Date);
-if (!SIM){ try{ for (const k of Object.keys(localStorage)) if (k.indexOf('kobd_sim_') === 0) localStorage.removeItem(k); }catch(e){} }
+if (!SIM){ try{ for (const k of Object.keys(localStorage)) if (k.indexOf('kobd_sim_') === 0) localStorage.removeItem(k); indexedDB.deleteDatabase('kobd_sim_road'); }catch(e){} }
 </script>
 <script>
 /* Theme engine (runs before first paint). Modes: auto | day | night. Auto = local sunrise/sunset from a GPS fix
@@ -493,6 +493,7 @@ const KobdSim = SIM ? (function(){
   #t_speed.ovw{box-shadow:inset 0 0 0 3px var(--warn);background:color-mix(in srgb,var(--warn) 9%,var(--card))}
   #t_speed.ovr{box-shadow:inset 0 0 0 5px var(--bad);background:color-mix(in srgb,var(--bad) 12%,var(--card))}
   /* version row: pinned at the top of the Log tab (visible in the installed app at every size; 5 taps on it unlock the developer menu) */
+  .rtrip{padding:6px 0;border-bottom:1px solid var(--line);font-size:var(--fs-s)} .rtrip button{min-width:0;padding:5px 10px;margin-left:6px;font-size:var(--fs-s)}
   #verRow{position:sticky;top:calc(-1*var(--gap));z-index:3;margin:calc(-1*var(--gap)) calc(-1*max(var(--gap),env(safe-area-inset-right))) var(--gap) calc(-1*max(var(--gap),env(safe-area-inset-left)));padding:calc(var(--gap) + 2px) max(var(--gap),env(safe-area-inset-right)) 8px max(var(--gap),env(safe-area-inset-left));background:var(--bg);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:var(--fs-s);-webkit-user-select:none;user-select:none}
   #verNote{font-weight:700;color:var(--txt);cursor:default}
   /* update toast */
@@ -702,6 +703,14 @@ const KobdSim = SIM ? (function(){
         <div class="row" style="margin-top:10px"><button id="btnGps">GPS: on</button><button id="btnTol">Over-limit warning: +2 mph</button></div>
         <p class="note">GPS runs only while connected or in Demo, in the foreground, and rests when you're stationary. It is optional: nothing from the car depends on it. "OBD vs GPS" is how far the car's speed reading is from true GPS speed. Weather (Open-Meteo) and speed limits (OpenStreetMap) are best-effort look-ups, cached, and sent with a rounded position (weather ~1 km, limits by map tile). Your route is stored on this phone only.</p>
       </section>
+      <section id="roadSec">
+        <h2>Road data (recorder)</h2>
+        <div class="row"><button id="btnRoad">Road mapping: off</button></div>
+        <div id="roadInfo" class="note"></div>
+        <div id="roadTrips"></div>
+        <div class="row" style="margin-top:10px"><button id="btnRoadAll" disabled>Export all</button><button class="danger" id="btnRoadDel" disabled>Delete all</button></div>
+        <p class="note">Records the phone's motion sensors (accelerometer incl. gravity + gyro) as 1 Hz rows with OBD speed and GPS position, per trip, on this device only. Off by default. For the road-condition map to come; nothing is analysed yet. <b>Exports contain your GPS locations.</b> Capped at about 50 MB: the oldest trips are deleted first.</p>
+      </section>
       <section>
         <h2>Diesel particulate filter (DPF)</h2>
         <div class="grid">
@@ -811,6 +820,7 @@ function ui(connected){
   $('btnConnect').disabled = connected; $('btnDemo').disabled = connected;
   $('btnStop').disabled = !connected;
   $('btnRead').disabled = !connected; $('btnClear').disabled = !connected; $('btnScan').disabled = !connected;
+  if (typeof RR !== 'undefined') RR.sync();
 }
 
 // ---------- ELM327 transport ----------
@@ -1021,7 +1031,7 @@ function saveTrip(){
   const h = store.get('trips', []);
   const m = styleMetrics();
   h.push({date:new Date(trip.t0).toISOString(), miles:tripKm()/KM_PER_MILE, litres:trip.L, mpg:mpg(tripKm(),trip.L), idleL:st.idleL,
-          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, stops:tripStops.map(x=>({...x})),
+          coldL:st.coldL, feat:tripFeatures(), regenDuring:dpf.active || dpf.tripRegen, stops:tripStops.map(x=>({...x})), rr:RR.curId(),
           ...(tg.km >= 0.3 ? {gpsKm:+tg.km.toFixed(2), ascent:Math.round(tg.ascent), descent:Math.round(tg.descent), route:simplifyRoute(tg.route, 15, 150).map(p=>[+p[0].toFixed(5), +p[1].toFixed(5), p[2]==null ? null : Math.round(p[2])]),
             spdErr:tg.spdN >= 10 ? +((tg.spdObd/tg.spdGps - 1)*100).toFixed(1) : null, overPct:tg.limS >= 20 ? +(tg.overS/tg.limS*100).toFixed(0) : null} : {}),
           wx:tg.wx || null, hacc:st.hacc, hbrk:st.hbrk, per10:m.per10, idlePct:m.idlePct, hiPct:m.hiPct, coastPct:m.coastPct, score:m.score});
@@ -1318,7 +1328,7 @@ async function loop(){
         if (!running) break;
         dpfUpdate(dtH); renderFuel(latest.speed||0); renderStyle(); renderDpf(); if (tick%10===0) renderVsExpected();
         if (tick%20===0 && supportedPids.has('A6')){ const b = await rawPid('A6'); if (b && b.length>=4){ odoKm = (((b[0]<<24)>>>0) + (b[1]<<16) + (b[2]<<8) + b[3])/10; if (trip.odo0==null) trip.odo0 = odoKm; show('odo', odoKm/KM_PER_MILE); } }
-        trackStart();
+        trackStart(); RR.sync();
         if (pre){ await preStartTick(); if (!running) break; }
         if (tick%25===3 && supportedPids.has('9B')){ const b = await rawPid('9B'); if (!running) break; show('adblue', b && b.length>3 ? b[3]*100/255 : null); }
         if (tick%10===0){ const v = await readVolt(); if (!running) break; handleVolt(v); }
@@ -1339,7 +1349,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.1.4';
+const APP_VERSION = '6.1.5';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1545,7 +1555,7 @@ function newTrip(){
 function endTrip(reason){
   if (!tripOpen) return;
   if (dpf.active) logRegen(false);                      // engine stopped mid-regen = interrupted
-  saveTrip(); trainModel(); store.set('idleBase', idleBase);
+  saveTrip(); RR.endTrip(); trainModel(); store.set('idleBase', idleBase);
   tripOpen = false; tripPausedAt = null; dpf.active = false; dpf.tripRegen = false; renderDpf(); renderLearned();
   log('Trip ended ('+reason+')');
 }
@@ -2203,10 +2213,128 @@ function setBig(on){ $('p_drive').classList.toggle('big', on); $('btnBig').setAt
 $('btnBig').onclick = ()=>setBig(!$('p_drive').classList.contains('big'));
 setBig(!!store.get('big', false));
 
+// ---------- road data recorder (v6.1.5): Stage 3 groundwork, records only, no analysis ----------
+const RR = (function(){
+  const ROW_COLS = ['t','lat','lon','acc','speed','rpm','n','vRms','vPp','jerkMax','rollRms','pitchRms','yawRms','gx','gy','gz'];
+  const ROW_BYTES = 190;                                        // storage estimate per 1 Hz row
+  const o = { CAP: 50e6, noiseMs: 33000, noiseSettle: 3, on: !!store.get('roadMap', false), listening: false, warn: '', sensorSeen: false, startedAt: 0, rowsThisTrip: 0, noiseDone: false };
+  let db = null, cur = null, acc = null, gv = null, prev = null, idleSecs = 0, nz = null;
+  const ST = (n, m) => { const d = db; return d.transaction(n, m || 'readonly'); };
+  const open = () => db ? Promise.resolve(db) : new Promise((res, rej) => {
+    const r = indexedDB.open(KP + 'road', 1);
+    r.onupgradeneeded = () => { const d = r.result; d.createObjectStore('trips', {keyPath: 'id'}); d.createObjectStore('chunks', {keyPath: ['tripId', 'i']}); d.createObjectStore('noise', {keyPath: 'id'}); };
+    r.onsuccess = () => { db = r.result; res(db); }; r.onerror = () => rej(r.error); });
+  const rq = r => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const done = t => new Promise((res, rej) => { t.oncomplete = () => res(); t.onerror = t.onabort = () => rej(t.error); });
+  const trips = async () => { await open(); return (await rq(ST('trips').objectStore('trips').getAll())).sort((a, b) => a.start - b.start); };
+  const noises = async () => { await open(); return rq(ST('noise').objectStore('noise').getAll()); };
+  async function rows(id){ await open(); const out = []; for (const c of await rq(ST('chunks').objectStore('chunks').getAll(IDBKeyRange.bound([id, 0], [id, 1e9])))) out.push(...c.rows); return out; }
+  async function totalBytes(){ const t = await trips(), n = await noises(); return t.reduce((a, x) => a + (x.bytes || 0), 0) + n.reduce((a, x) => a + (x.bytes || 0), 0); }
+  async function del(id){ await open(); const t = ST(['trips', 'chunks'], 'readwrite'); t.objectStore('trips').delete(id); t.objectStore('chunks').delete(IDBKeyRange.bound([id, 0], [id, 1e9])); await done(t); }
+  async function evict(){                                                                  // oldest trip first, never the one being recorded
+    let tot = await totalBytes(), n = 0;
+    while (tot > o.CAP){ const t = (await trips()).filter(x => !cur || x.id !== cur.id); if (!t.length) break; await del(t[0].id); tot = await totalBytes(); n++; }
+    if (n){ o.warn = 'Storage cap reached: the '+n+' oldest road-data trip'+(n>1?'s were':' was')+' deleted.'; try{ setStatusHint('Road data: oldest trip deleted (storage cap)'); }catch{} }
+  }
+  async function flush(force){
+    if (!cur || (!cur.chunk.length && !force)) return;
+    const chunk = cur.chunk; cur.chunk = []; await open();
+    store.set('roadHas', true); const t = ST(['trips', 'chunks'], 'readwrite');
+    if (chunk.length) t.objectStore('chunks').put({tripId: cur.id, i: cur.ci++, rows: chunk});
+    cur.n += chunk.length; cur.bytes = cur.n * ROW_BYTES;
+    t.objectStore('trips').put({id: cur.id, start: cur.start, end: cur.end, n: cur.n, bytes: cur.bytes, rr: 1});
+    await done(t); await evict(); view();
+  }
+  const recording = () => o.on && running && !demo && tripOpen;
+  function second(){
+    const a = acc; acc = null; if (!a || a.n < 1) return;
+    o.sensorSeen = true;
+    const g = gv ? Math.hypot(...gv) : 9.81, f = x => +x.toFixed(3), fx = G.fix && Date.now() - G.fix.t < 15000 ? G.fix : null;
+    const row = {t: a.sec * 1000, lat: fx ? +fx.lat.toFixed(6) : null, lon: fx ? +fx.lon.toFixed(6) : null, acc: fx ? Math.round(fx.acc) : null,
+      speed: latest.speed != null ? +latest.speed.toFixed(1) : null, rpm: latest.rpm != null ? Math.round(latest.rpm) : null, n: a.n,
+      vRms: f(Math.sqrt(a.s2 / a.n)), vPp: f(a.max - a.min), jerkMax: f(a.jerk), rollRms: f(Math.sqrt(a.rg / a.n)), pitchRms: f(Math.sqrt(a.rb / a.n)), yawRms: f(Math.sqrt(a.ra / a.n)),
+      gx: f(a.gx / a.n), gy: f(a.gy / a.n), gz: f(a.gz / a.n)};
+    // mount-noise sample: 30 s of raw motion at engine idle while stationary (for later calibration)
+    const still = (latest.speed || 0) < 2 && (latest.rpm || 0) >= 300 && (latest.rpm || 0) < 1500;
+    idleSecs = still ? idleSecs + 1 : 0; if (!still) nz = null;
+    if (still && idleSecs >= o.noiseSettle && !nz && !o.noiseDone) nz = {t0: a.sec * 1000, data: [], last: null, rpm: latest.rpm, coolant: latest.coolant};
+    if (!recording()) return;
+    if (!cur){ cur = {id: Date.now(), start: row.t, end: row.t, n: 0, bytes: 0, chunk: [], ci: 0}; o.rowsThisTrip = 0; o.noiseDone = false; }
+    cur.chunk.push(row); cur.end = row.t; o.rowsThisTrip++;
+    if (cur.chunk.length >= 30) flush().catch(()=>{}); else view();
+  }
+  async function saveNoise(z){
+    store.set('roadHas', true); await open(); const bytes = z.data.length * 9, id = Date.now();
+    const t = ST('noise', 'readwrite'); t.objectStore('noise').put({id, t: z.t0, tripId: cur ? cur.id : null, rpm: z.rpm, coolant: z.coolant, n: z.data.length / 7, cols: 'dtMs,ax,ay,az,alpha,beta,gamma', bytes, data: z.data}); await done(t);
+    const all = (await noises()).sort((a, b) => a.id - b.id); while (all.length > 5){ const x = all.shift(); const d = ST('noise', 'readwrite'); d.objectStore('noise').delete(x.id); await done(d); }
+    o.noiseDone = true; await evict(); view();
+  }
+  function onMotion(e){
+    const a = e.accelerationIncludingGravity, r = e.rotationRate; if (!a || a.x == null || a.y == null || a.z == null) return;
+    const now = Date.now(), sec = Math.floor(now / 1000), pn = performance.now();
+    if (!gv) gv = [a.x, a.y, a.z]; else { gv[0] += (a.x - gv[0]) * 0.01; gv[1] += (a.y - gv[1]) * 0.01; gv[2] += (a.z - gv[2]) * 0.01; }
+    const g = Math.hypot(...gv) || 9.81, az = (a.x * gv[0] + a.y * gv[1] + a.z * gv[2]) / g - g;       // vertical-ish: along gravity, gravity removed
+    if (!acc || acc.sec !== sec){ if (acc) second(); acc = {sec, n: 0, s2: 0, min: 1e9, max: -1e9, jerk: 0, ra: 0, rb: 0, rg: 0, gx: 0, gy: 0, gz: 0}; }
+    acc.n++; acc.s2 += az * az; acc.min = Math.min(acc.min, az); acc.max = Math.max(acc.max, az); acc.gx += a.x; acc.gy += a.y; acc.gz += a.z;
+    if (r){ acc.ra += (r.alpha || 0) ** 2; acc.rb += (r.beta || 0) ** 2; acc.rg += (r.gamma || 0) ** 2; }
+    if (prev){ const dt = (pn - prev.t) / 1000; if (dt > 0.0005) acc.jerk = Math.max(acc.jerk, Math.abs(az - prev.az) / dt); } prev = {t: pn, az};
+    if (nz){ nz.data.push(Math.round(prev.t - (nz.last == null ? prev.t : nz.last)), +a.x.toFixed(4), +a.y.toFixed(4), +a.z.toFixed(4), r ? +(r.alpha||0).toFixed(3) : 0, r ? +(r.beta||0).toFixed(3) : 0, r ? +(r.gamma||0).toFixed(3) : 0); nz.last = prev.t;
+      if (now - nz.t0 >= o.noiseMs){ const z = nz; nz = null; saveNoise(z).catch(()=>{}); } }
+  }
+  function sync(){
+    const want = o.on && running && !demo && typeof window !== 'undefined';
+    let changed = false;
+    if (want && !o.listening){ window.addEventListener('devicemotion', onMotion); o.listening = true; o.startedAt = Date.now(); o.sensorSeen = false; changed = true; }
+    if (!want && o.listening){ window.removeEventListener('devicemotion', onMotion); o.listening = false; acc = null; prev = null; nz = null; flush(true).catch(()=>{}); changed = true; }
+    if (changed) view();
+  }
+  async function endTrip(){ if (!cur) { o.noiseDone = false; return; } const c = cur; acc = null; await flush(true); if (cur === c) cur = null; o.rowsThisTrip = 0; o.noiseDone = false; view(); }
+  // ---- export (CSV + JSON). Contains GPS locations: always confirmed first. ----
+  const csvOf = list => [['trip', ...ROW_COLS].join(',')].concat(list.flatMap(t => t.rows.map(r => [t.id, ...ROW_COLS.map(c => r[c] == null ? '' : r[c])].join(',')))).join('\n') + '\n';
+  async function exportTrips(ids, label){
+    if (!confirm('This export contains your GPS locations (where you drove, and when). Only share it with people you trust.\n\nContinue?')) return false;
+    const all = await trips(), pick = all.filter(t => !ids || ids.includes(t.id)), data = [];
+    for (const t of pick) data.push({...t, rows: await rows(t.id)});
+    const json = JSON.stringify({app: 'Kodiaq OBD', version: APP_VERSION, exported: new Date().toISOString(), warning: 'Contains GPS locations', cols: ROW_COLS, trips: data, mountNoise: ids ? [] : await noises()});
+    const base = 'kodiaq-road-' + (label || 'all'), files = [[base + '.csv', csvOf(data), 'text/csv'], [base + '.json', json, 'application/json']];
+    (window.__exports = window.__exports || []).push(...files.map(f => ({name: f[0], text: f[1]})));
+    const fl = files.map(f => new File([f[1]], f[0], {type: f[2]}));
+    try{ if (navigator.canShare && navigator.canShare({files: fl})){ await navigator.share({files: fl, title: 'Kodiaq road data (contains GPS locations)'}); return true; } }catch(e){ if (e.name === 'AbortError') return false; }
+    for (const f of files){ const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([f[1]], {type: f[2]})); a.download = f[0]; a.click(); }
+    return true;
+  }
+  async function view(){
+    const info = $('roadInfo'); if (!info) return;
+    $('btnRoad').textContent = 'Road mapping: ' + (o.on ? 'on' : 'off');
+    let st; if (!o.on) st = 'Off: nothing is recorded.'; else if (!running || demo) st = 'On: records while connected to the car (not in Demo).';
+      else if (!o.sensorSeen && Date.now() - o.startedAt > 5000) st = 'On, but no motion-sensor data arrived (this browser/device has none, or access is blocked).';
+      else st = tripOpen ? 'Recording: ' + o.rowsThisTrip + ' rows this trip.' : 'On: waiting for the engine to start a trip.';
+    let list = [], noise = [], tot = 0; if (o.on || store.get('roadHas', false)){ try{ list = await trips(); noise = await noises(); tot = await totalBytes(); }catch{} }   // never create the database while the feature has not been used
+    info.innerHTML = '<div>' + st + '</div><div>Stored: ' + list.length + ' trip' + (list.length === 1 ? '' : 's') + ', ' + (tot / 1e6).toFixed(2) + ' MB of ' + Math.round(o.CAP / 1e6) + ' MB · mount-noise samples: ' + noise.length + '</div>' + (o.warn ? '<div style="color:var(--warn)">⚠ ' + o.warn + '</div>' : '');
+    $('btnRoadAll').disabled = !list.length; $('btnRoadDel').disabled = !list.length && !noise.length;
+    $('roadTrips').innerHTML = list.slice(-8).reverse().map(t => { const d = new Date(t.start); return '<div class="rtrip" data-id="'+t.id+'">' + d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) + ' · ' + Math.round((t.end - t.start) / 60000) + ' min · ' + t.n + ' rows <button class="rexp" data-id="'+t.id+'">Export</button> <button class="rdel" data-id="'+t.id+'">Delete</button></div>'; }).join('');
+  }
+  const api = Object.assign(o, { sync, endTrip, flush, trips, rows, noises, totalBytes, del, exportTrips, view, csvOf, ROW_COLS, curId: () => cur ? cur.id : null,
+    clearAll: async () => { await open(); const t = ST(['trips', 'chunks', 'noise'], 'readwrite'); t.objectStore('trips').clear(); t.objectStore('chunks').clear(); t.objectStore('noise').clear(); await done(t); o.warn = ''; view(); },
+    put: async (id, start, rowsArr) => { store.set('roadHas', true); await open(); const t = ST(['trips', 'chunks'], 'readwrite'); t.objectStore('chunks').put({tripId: id, i: 0, rows: rowsArr}); t.objectStore('trips').put({id, start, end: rowsArr.length ? rowsArr[rowsArr.length-1].t : start, n: rowsArr.length, bytes: rowsArr.length * ROW_BYTES, rr: 1}); await done(t); await evict(); view(); } });
+  return api;
+})();
+$('btnRoad').onclick = async ()=>{
+  if (!RR.on){
+    try{ if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission){ const r = await DeviceMotionEvent.requestPermission(); if (r !== 'granted'){ setStatusHint('Motion access was not allowed'); return; } } }catch{}
+  }
+  RR.on = !RR.on; store.set('roadMap', RR.on); if (!RR.on) RR.endTrip(); RR.sync(); RR.view();
+};
+$('btnRoadAll').onclick = ()=>RR.exportTrips(null, 'all');
+$('btnRoadDel').onclick = async ()=>{ if (!confirm('Delete ALL recorded road data on this device?')) return; await RR.clearAll(); };
+$('roadTrips').addEventListener('click', async e=>{ const b = e.target.closest('button'); if (!b) return; const id = +b.dataset.id;
+  if (b.classList.contains('rexp')) RR.exportTrips([id], String(id)); else if (b.classList.contains('rdel') && confirm('Delete this trip\'s road data?')){ await RR.del(id); RR.view(); } });
+RR.view(); if (RR.on) RR.sync();
+
 // ---------- developer menu + simulator (tap the version 5 times) ----------
 (function(){
   const dm = $('devMenu'); document.body.classList.toggle('sim', SIM); if (SIM) document.title = 'SIMULATION · ' + document.title;
-  function leave(){ try{ for (const k of Object.keys(localStorage)) if (k.indexOf('kobd_sim_') === 0) localStorage.removeItem(k); sessionStorage.removeItem('kobd_simMode'); sessionStorage.removeItem('kobd_simScen'); }catch{} location.reload(); }
+  function leave(){ try{ for (const k of Object.keys(localStorage)) if (k.indexOf('kobd_sim_') === 0) localStorage.removeItem(k); sessionStorage.removeItem('kobd_simMode'); sessionStorage.removeItem('kobd_simScen'); indexedDB.deleteDatabase('kobd_sim_road'); }catch{} setTimeout(()=>location.reload(), 150); }
   function build(){
     if (!SIM){
       dm.innerHTML = `<h2>Developer</h2><div class="note">Simulated car: the real app runs against a built-in fake car (scenarios, or replay of a CSV log). Everything it saves is kept apart from your real trips and learning and is deleted when you leave simulation.</div><div class="row" style="margin-top:10px"><button id="simEnter">Enter simulation mode</button></div>`;

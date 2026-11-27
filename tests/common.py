@@ -7,7 +7,7 @@ OUT = ROOT / "tests" / "out"
 OUT.mkdir(exist_ok=True)
 
 @contextlib.contextmanager
-def app(viewport=(412, 915), mock=True, splash=False, theme=None, gps=None, net=None, **ctx):
+def app(viewport=(412, 915), mock=True, splash=False, theme=None, gps=None, net=None, motion=None, **ctx):
     h = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ROOT))
     h.log_message = lambda *a, **k: None
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), h)
@@ -17,6 +17,8 @@ def app(viewport=(412, 915), mock=True, splash=False, theme=None, gps=None, net=
         c = b.new_context(viewport={"width": viewport[0], "height": viewport[1]}, **ctx)
         if gps is not None:   # mock phone GPS: True or a dict of options (see mock-adapter.js)
             c.add_init_script(f"window.__MOCK_GPS = {json.dumps(gps)};")
+        if motion is not None:   # mock phone DeviceMotion: True or a dict of options (see mock-adapter.js)
+            c.add_init_script(f"window.__MOCK_MOTION = {json.dumps(motion)};")
         if mock:
             c.add_init_script(path=str(ROOT / "tests" / "mock-adapter.js"))
         # Network stub: tests never touch the internet. page.net['overpass'] / ['weather'] = JSON to serve (None = fail), ['offline'] = fail everything.

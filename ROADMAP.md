@@ -21,7 +21,10 @@
 ## v6.1.4 – Over-limit highlight — DONE
 - Speed tile: steady red ring + faint tint when OBD speed > OSM limit + tolerance (amber between limit and limit + tolerance). Tolerance: +2 mph (default) / 10% + 2 mph / exact. Red after 2 s, clears 1 mph under. Only with a known limit and GPS accuracy <= 20 m. No flashing, no sound.
 
-## v6.1.5 – Trip map (planned, not built)
+## v6.1.5 – Road data recorder — DONE
+- Car tab "Road mapping" (per device, default OFF): DeviceMotion -> 1 Hz rows (accel RMS/pp/jerk, gyro RMS, gravity, GPS, OBD speed, rpm) per trip in IndexedDB, ~50 MB cap with oldest-trip eviction, 30 s mount-noise sample at idle, CSV + JSON export with a GPS warning. Records only: no analysis.
+
+## v6.1.5 (old plan, merged into v6.1.6) – Trip map
 - Style tab → tap a trip → simple route map: OSM tiles when online, canvas outline offline (vendored lib, no CDNs), route line coloured by speed.
 
 ## Stage 3 – Motion sensors + Road condition map (v6.2.0)

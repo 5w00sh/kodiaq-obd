@@ -75,6 +75,25 @@
     if (o.unsupported) { try { delete Navigator.prototype.geolocation; } catch (e) {} try { Object.defineProperty(navigator, 'geolocation', { value: undefined, configurable: true }); } catch (e) {} delete navigator.geolocation; }
     else Object.defineProperty(navigator, 'geolocation', { value: geo, configurable: true });
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Mock DeviceMotion (opt-in: window.__MOCK_MOTION = {...} before the page loads). Fires 'devicemotion' at `rate` Hz with gravity on z (tilted by gx/gy),
+  // a vertical sinusoid (amp m/s^2 at freq Hz) and rotation rates. Controls on window.__motion: running, amp, freq, rate, spikeNext (one big hit), listeners (add count).
+  // ---------------------------------------------------------------------------------------------
+  if (window.__MOCK_MOTION) {
+    const o = window.__MOCK_MOTION === true ? {} : window.__MOCK_MOTION;
+    const mm = window.__motion = Object.assign({ running: true, amp: 0.6, freq: 2, rate: 50, gx: 1.0, gy: 0.0, gz: 9.81, roll: 5, pitch: 3, spike: 0, listeners: 0, removed: 0, fired: 0 }, o);
+    const add = window.addEventListener.bind(window), rem = window.removeEventListener.bind(window);
+    window.addEventListener = function (t, f, x) { if (t === 'devicemotion') mm.listeners++; return add(t, f, x); };
+    window.removeEventListener = function (t, f, x) { if (t === 'devicemotion') mm.removed++; return rem(t, f, x); };
+    let tick = 0, h = null;
+    const start = () => { clearInterval(h); h = setInterval(() => {
+      if (!mm.running) return; tick++; const t = tick / mm.rate, s = Math.sin(2 * Math.PI * mm.freq * t);
+      const ev = new Event('devicemotion'); const sp = mm.spike; mm.spike = 0;
+      ev.accelerationIncludingGravity = { x: mm.gx, y: mm.gy, z: mm.gz + mm.amp * s + sp }; ev.rotationRate = { alpha: 1, beta: mm.pitch * s, gamma: mm.roll * s }; ev.interval = 1000 / mm.rate;
+      mm.fired++; window.dispatchEvent(ev); }, 1000 / mm.rate); };
+    start(); Object.defineProperty(mm, 'restart', { value: start });
+  }
   const hexb = (...b) => b.map(x => (x & 255).toString(16).padStart(2, '0').toUpperCase()).join('');  // ATS0: no spaces
   // supported-PID bitmask for one 32-PID block: PID base+i+1 -> bit i from MSB
   const mask = (base, pids) => {
