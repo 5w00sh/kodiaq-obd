@@ -1443,7 +1443,7 @@ function startDemo(){ showAsleep(false); ds = 0; fuelReset(); fuelWin = [0,1,2].
 
 // ---------- CSV ----------
 function csv(){
-  const cols = ['t','speed','rpm','throttle','load','coolant','oil','iat','amb','volt','lph','mpgTrip','egt','dpfTrig','regen','fuel'];
+  const cols = ['t','speed','rpm','throttle','load','coolant','oil','iat','amb','volt','lph','mpgTrip','egt','dpfTrig','regen','fuel','gpsKmh','alt','limit'];
   const rows = [cols.join(',')].concat(samples.map(s=>cols.map(c=>s[c]==null?'':(typeof s[c]==='number'?s[c].toFixed(2):s[c])).join(',')));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));

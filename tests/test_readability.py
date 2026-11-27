@@ -35,6 +35,14 @@ JS = """(big) => {
     if (v && v.scrollWidth > v.clientWidth + 1) bad.push(t.id + ' text clipped');
     if (v) inTile(v, t, t.id + ' text');
   }
+  const lim = document.getElementById('limit');
+  if (lim.classList.contains('show')) {
+    const sp = document.getElementById('t_speed').getBoundingClientRect(), lr = lim.getBoundingClientRect(), v = document.querySelector('#t_speed .val');
+    if (lr.left < sp.left || lr.right > sp.right + 1 || lr.top < sp.top || lr.bottom > sp.bottom + 1) bad.push('limit roundel outside the speed tile');
+    for (const n of [v.firstChild, v.querySelector('.unit')]) { const r = document.createRange(); r.selectNode(n); const b = r.getBoundingClientRect();
+      if (b.width && b.right > lr.left + 1 && b.left < lr.right && b.bottom > lr.top && b.top < lr.bottom) bad.push('limit roundel overlaps the speed number'); }
+    if (lim.querySelector('small').scrollHeight > lim.querySelector('small').clientHeight + 1) bad.push('limit caption clipped');
+  }
   // --- speed: must exist, big, and the largest number ---
   const sp = document.querySelector('#t_speed .val'); if (!shown(sp)) bad.push('Speed tile missing');
   else { info.speedFont = fs(sp); info.speedInk = ink(sp); const need = phone ? 72 : 96;
@@ -72,6 +80,7 @@ JS = """(big) => {
 
 STATES = [
     ("normal",            "ds = 0; window.__forceFill = false; window.__forceHot = false", False, False),
+    ("speed limit",       "limitUi(30)", False, False),
     ("regen banner",      "ds = 13", False, True),
     ("regen + fill card", "ds = 13; window.__forceFill = true", False, True),
     ("hot coolant",       "ds = 0; window.__forceFill = false; window.__forceHot = true", False, False),
@@ -79,6 +88,7 @@ STATES = [
     ("big + regen",       "ds = 13; window.__forceFill = false; window.__forceHot = false; if (!document.getElementById('p_drive').classList.contains('big')) document.getElementById('btnBig').click()", True, True),
     ("big",               "ds = 0", True, False),
     ("big + hot coolant", "ds = 0; window.__forceHot = true", True, False),
+    ("big + limit",       "ds = 0; window.__forceHot = false; limitUi(60)", True, False),
 ]
 
 for theme in ("night", "day"):

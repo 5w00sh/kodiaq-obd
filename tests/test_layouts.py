@@ -14,6 +14,14 @@ JS = """() => {
     if (fr.bottom > pane.querySelector('.drive').getBoundingClientRect().top + 1) bad.push('fill-up card overlaps the tile grid');
     for (const e of fc.querySelectorAll('span,input,button')) { const r = e.getBoundingClientRect(); if (r.right > fr.right + 1 || r.bottom > fr.bottom + 1 || r.width < 20) bad.push('fill-up card: ' + e.id + ' clipped'); }
   }
+  const lim = document.getElementById('limit');
+  if (lim.classList.contains('show')) {
+    const sp = document.getElementById('t_speed').getBoundingClientRect(), lr = lim.getBoundingClientRect(), v = document.querySelector('#t_speed .val');
+    if (lr.left < sp.left || lr.right > sp.right + 1 || lr.top < sp.top || lr.bottom > sp.bottom + 1) bad.push('limit roundel outside the speed tile');
+    for (const n of [v.firstChild, v.querySelector('.unit')]) { const r = document.createRange(); r.selectNode(n); const b = r.getBoundingClientRect();
+      if (b.width && b.right > lr.left + 1 && b.left < lr.right && b.bottom > lr.top && b.top < lr.bottom) bad.push('limit roundel overlaps the speed number'); }
+    if (lim.querySelector('small').scrollHeight > lim.querySelector('small').clientHeight + 1) bad.push('limit caption clipped');
+  }
   const rg = document.getElementById('regen'), rr = rg.getBoundingClientRect(), regOn = getComputedStyle(rg).display !== 'none';
   const dr = pane.querySelector('.drive').getBoundingClientRect();
   if (regOn && rr.bottom > dr.top + 1) bad.push('regen banner overlaps the tile grid');
@@ -46,6 +54,10 @@ for theme in ("night", "day"):
             bad = page.evaluate(JS)
             check(not bad and page.is_visible("#fillCard"), f"{theme} {w}x{h} fill-up card: grid shrinks, nothing clipped" + ("" if not bad else ": " + "; ".join(bad)))
             page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-fillcard.png"))
+            page.evaluate("limitUi(30)"); page.wait_for_timeout(100)                  # speed-limit roundel on for the rest of the checks
+            bad = page.evaluate(JS)
+            check(not bad and page.is_visible("#limit"), f"{theme} {w}x{h} limit roundel fits beside the speed" + ("" if not bad else ": " + "; ".join(bad)))
+            page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-limit.png"))
             page.evaluate("ds = 13"); page.wait_for_timeout(900)      # demo DPF regen window -> banner on
             check(page.is_visible("#regen"), f"{theme} {w}x{h} regen banner showing")
             page.screenshot(path=str(OUT / f"layout-{theme}-{w}x{h}-regen.png"))
