@@ -37,7 +37,7 @@ JS = """(big) => {
   }
   const lim = document.getElementById('limit');
   if (lim.classList.contains('show')) {
-    const sp = document.getElementById('t_speed').getBoundingClientRect(), lr = lim.getBoundingClientRect(), v = document.querySelector('#t_speed .val');
+    const sp = document.getElementById('t_speed').getBoundingClientRect(), lr0 = lim.getBoundingClientRect(), sr = lim.querySelector('small').getBoundingClientRect(), lr = sr.width ? {left:Math.min(lr0.left,sr.left), right:Math.max(lr0.right,sr.right), top:lr0.top, bottom:Math.max(lr0.bottom,sr.bottom)} : lr0, v = document.querySelector('#t_speed .val');
     if (lr.left < sp.left || lr.right > sp.right + 1 || lr.top < sp.top || lr.bottom > sp.bottom + 1) bad.push('limit roundel outside the speed tile');
     for (const n of [v.firstChild, v.querySelector('.unit')]) { const r = document.createRange(); r.selectNode(n); const b = r.getBoundingClientRect();
       if (b.width && b.right > lr.left + 1 && b.left < lr.right && b.bottom > lr.top && b.top < lr.bottom) bad.push('limit roundel overlaps the speed number'); }

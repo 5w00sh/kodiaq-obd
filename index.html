@@ -220,12 +220,14 @@
   #p_drive.big #btnBig{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
   /* speed-limit roundel (OSM, may be wrong): informational only, sits inside the speed tile's right edge */
   #t_speed{position:relative}
-  .limit{--d:min(24cqw,40cqh);position:absolute;right:14px;top:50%;transform:translateY(-50%);display:none;flex-direction:column;align-items:center;gap:4px;width:var(--d);pointer-events:none}
+  .limit{--d:min(24cqw,40cqh);position:absolute;right:14px;top:50%;transform:translateY(-50%);display:none;flex-direction:column;align-items:flex-end;gap:4px;width:var(--d);pointer-events:none}
   .limit.show{display:flex}
   .limit .rnd{width:var(--d);height:var(--d);box-sizing:border-box;border-radius:50%;background:#fff;border:calc(var(--d)*.12) solid #cc1117;color:#000;font-weight:800;display:grid;place-items:center;font-size:calc(var(--d)*.42);line-height:1;letter-spacing:-.04em}
   .limit .rnd.nsl{border-color:#222;color:transparent;background:linear-gradient(135deg,#fff 44%,#111 44%,#111 56%,#fff 56%)}
-  .limit small{font-size:clamp(8px,2.4cqh,10px);line-height:1.15;color:var(--mut);text-align:center;font-weight:600;width:max(var(--d),84px)}
+  .limit small{font-size:clamp(8px,2.4cqh,10px);line-height:1.15;color:var(--mut);text-align:right;font-weight:600;width:max(var(--d),84px);flex:none}
   :root[data-theme=night] .limit .rnd{filter:brightness(.82)}
+  /* narrow speed tile (landscape phones): no room beside the digits, so a small roundel sits in the top-right corner and the caption drops (aria-label + Car tab keep the 'may be wrong' note) */
+  @container (max-width:300px){ .limit{--d:min(40px,26cqh);top:6px;right:8px;transform:none} .limit small{display:none} }
   /* other screens: fixed-height tile grids that reflow by width */
   .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(150px,1fr));grid-auto-rows:96px;margin-bottom:12px}
   .grid .wide{grid-column:1/-1}
