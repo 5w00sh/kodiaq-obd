@@ -1846,7 +1846,7 @@ function updateGpsUi(){
   if (!G.active && G.state==='off' && store.get('gpsOn', true)) s = 'GPS starts when you connect (or tap Demo) and stops when you stop, to save battery.';
   if (G.state==='ok') s = 'GPS locked, ±'+Math.round(f.acc)+' m'+(G.mode==='idle' ? ' (resting while stationary)' : '');
   if (G.state==='coarse') s = 'Approximate location only (±'+(f.acc>=1000 ? (f.acc/1000).toFixed(1)+' km' : Math.round(f.acc)+' m')+'): no GPS speed, hills or speed limits, but weather and day/night still work.';
-  if (G.state==='ok' && G.mode==='idle') s = 'GPS resting while stationary (saves battery); wakes when you move.';
+  if ((G.state==='ok' || G.state==='coarse') && G.mode==='idle') s = 'GPS resting while stationary (saves battery); wakes when you move.';
   const w = tg && tg.wx;
   const wx = w ? `Weather at trip start: ${Math.round(w.temp)} °C, wind ${Math.round(w.wind)} mph${w.rain ? ', rain' : ', dry'}.` : 'Weather at trip start: no data (needs a location and a connection; fine to leave).';
   const lim = G.state==='ok' ? (G.limit==null ? 'Speed limit: no OSM data here.' : 'Speed limit shown is from OpenStreetMap and may be wrong.') : '';

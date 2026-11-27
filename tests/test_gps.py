@@ -93,7 +93,7 @@ with app(gps={"permission": "prompt", "promptAnswer": "allow"}, net={"overpass":
     page.evaluate("__mock.cruise = 44; __mock.gps.speed = 12; __mock.gps.permission = 'granted'"); connect(page)   # a real browser remembers the grant across reloads
     wait(page, "document.querySelector('#limit .rnd').textContent === '30'", 15000)
     check(len([r for r in page.net["log"][n0:] if "overpass" in r["url"]]) == 0, "offline: speed limit comes from the on-device cache (no request made)")
-    page.click('nav button[data-p="car"]'); page.wait_for_timeout(400)
+    wait(page, "tg.wx != null", 15000); page.click('nav button[data-p="car"]'); page.wait_for_timeout(400)
     check("Weather at trip start: 8 °C" in page.inner_text("#gpsInfo"), "offline: cached weather used")
     page.click("#btnStop"); page.wait_for_timeout(300)
     page.evaluate("Object.keys(localStorage).filter(k => k.startsWith('kobd_osm') || k === 'kobd_wx').forEach(k => localStorage.removeItem(k))")
