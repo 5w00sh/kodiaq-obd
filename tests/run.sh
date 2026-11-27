@@ -16,4 +16,5 @@ python3 test_robust.py
 python3 test_gps.py
 python3 test_gps_degrade.py
 python3 test_model.py
+python3 test_sim.py
 [ -n "$FAST" ] || python3 test_engine_cycle.py

@@ -12,6 +12,12 @@
 - Degrade gracefully with no GPS / no data; GPS only while connected; keep kobd_loc fresh for auto theme; range tile + speed-limit roundel must fit at 360x760; mock GPS (hill, limit change, dropout) in tests.
 - Commit locally after each sub-feature.
 
+## Stage 2.5 – On-device simulator (v6.1.1) — DONE
+- Hidden dev menu (tap version 5×): "Simulated car" connection using tests/mock-adapter.js logic bundled into the app, so the REAL code path runs (parsing, 2 ECUs, ISO-TP, scans, trips, learning, DPF).
+- Scenarios: cold-start school run, motorway, DPF regen, hot coolant, low fuel, refuel, engine stop/restart, adapter asleep, weak battery.
+- Replay: load a real CSV log (incl. GPS if present) and play back at 1×/10×/60× through the same pipeline; simulated GPS along the route.
+- Sim data isolated (separate kobd_sim_ keys), never mixed with real trips/learning; cleared on leaving sim mode; clear "SIMULATION" banner.
+
 ## Stage 3 – Motion sensors + Road condition map (v6.2.0)
 - Per-device setting "Road mapping" default OFF; only on for the Pixel 10 Pro XL in a Spigen Cryomax MagFit Qi2 vent mount (Peltier fan). Devices are independent, no syncing.
 - G-forces (long/lat), harsh cornering, braking in g → eco score.

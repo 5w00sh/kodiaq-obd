@@ -7,10 +7,17 @@
 <title>Kodiaq OBD</title>
 <link rel="manifest" href="manifest.json">
 <script>
+/* Simulation mode (v6.1.1, dev menu: tap the version 5x). SIM = this tab runs against the built-in simulated car. Everything it stores uses the prefix
+   kobd_sim_ so real trips / learning / scans are never touched; leaving simulation (or any normal start) deletes every kobd_sim_ key. */
+var SIM = false; try{ SIM = sessionStorage.getItem('kobd_simMode') === '1'; }catch(e){}
+var KP = SIM ? 'kobd_sim_' : 'kobd_', realNow = Date.now.bind(Date);
+if (!SIM){ try{ for (const k of Object.keys(localStorage)) if (k.indexOf('kobd_sim_') === 0) localStorage.removeItem(k); }catch(e){} }
+</script>
+<script>
 /* Theme engine (runs before first paint). Modes: auto | day | night. Auto = local sunrise/sunset from a GPS fix
    that is already permitted and cached (never prompts here), else the phone's prefers-color-scheme. */
 (function(){
-  const ls = {get(k){ try{ return localStorage.getItem('kobd_'+k); }catch{ return null; } }, set(k,v){ try{ localStorage.setItem('kobd_'+k, v); }catch{} }};
+  const ls = {get(k){ try{ return localStorage.getItem((k==='loc' ? KP : 'kobd_')+k); }catch{ return null; } }, set(k,v){ try{ localStorage.setItem((k==='loc' ? KP : 'kobd_')+k, v); }catch{} }};
   const rad = Math.PI/180, wrap = (x,m)=>((x%m)+m)%m;
   // Sunrise/sunset (Almanac for Computers). Returns ms timestamps for the local calendar day, or null in polar day/night.
   function sunTimes(d, lat, lon){
@@ -75,6 +82,260 @@
 })();
 </script>
 
+<script>
+/* ===== On-device simulator (v6.1.1). The ELM327 core below is a copy of tests/mock-adapter.js (tests/test_sim.py checks the two answer identically), so a
+   simulated connection runs the REAL parsing / ISO-TP / scan / trip / learning / DPF code. Active only in simulation mode (sessionStorage kobd_simMode). ===== */
+function kobdCreateElm(){
+  const mock = {
+    ov: {},                 // sim/replay overrides: speed, rpm, throttle, load, iat, amb, lph, volt (null = default)
+    rate: 1,                // sim clock rate (reply latency shrinks with it)
+    crankV: null, runV: null, crankLen: 2500,   // weak-battery scenario
+    asleep: false,          // true -> port.open() rejects, like an iCar2 whose light is off
+    engine: true,           // false -> rpm 0, speed 0, no fuel flow; battery reads the ignition-on/engine-off value
+    hasRun: false,          // set when the engine has been on (drives the 11.0 V after-engine-off reading)
+    cruise: null,           // number -> constant speed (km/h) while the engine is on; null -> sinusoid 20..90
+    fuelPct: 70,            // PID 2F tank level in %. Tests set this directly (a refuel = a jump)
+    fuelBurn: 0,            // % lost per minute while the engine runs (slow drift down)
+    fuelSpike: 0,           // every 4th read adds +/- this many % (slosh / glitch) to test the smoothing
+    coolantC: 90,           // PID 05
+    dpfTrigPct: 62,         // PID 8B byte C (soot %), multi-frame
+    dpfRegen: false,        // PID 8B status bit
+    oilRaw: null,           // PID 5C raw byte override (255 = sensor not ready, the first sample after a restart on the real car)
+    crankUntil: 0,          // ms timestamp: until then every voltage reads 10.0 (cranking dip)
+    egtC: 280,              // PID 78 sensor temps, multi-frame
+    mode03: null,           // array of reply lines to override the default "4300" x2 (no codes)
+    restVolt: 12.4,         // ATRV before the engine has ever run (ignition on, rested battery)
+    openAttempts: 0,
+    log: [],                // every command received
+    t0: Date.now(),
+    speedKmh() { if (!this.engine) return 0; if (this.ov.speed != null) return this.ov.speed; if (this.cruise != null) return this.cruise; const t = (Date.now() - this.t0) / 1000; return Math.max(0, Math.round(55 + 35 * Math.sin(t / 6))); },
+    rpm() { return this.engine ? (this.ov.rpm != null ? Math.round(this.ov.rpm) : Math.round(800 + this.speedKmh() * 26)) : 0; },
+    volt() { if (this.ov.volt != null) return this.ov.volt; if (Date.now() < this.crankUntil) return this.crankV != null ? this.crankV : 10.0; if (this.engine) { this.hasRun = true; return this.runV != null ? this.runV : 13.2 + (Date.now() % 3) / 10; } return this.hasRun ? 11.0 : this.restVolt; },
+  };
+  const hexb = (...b) => b.map(x => (x & 255).toString(16).padStart(2, '0').toUpperCase()).join('');  // ATS0: no spaces
+  // supported-PID bitmask for one 32-PID block: PID base+i+1 -> bit i from MSB
+  const mask = (base, pids) => {
+    let m = 0; for (const p of pids) { const i = p - base - 1; if (i >= 0 && i < 32) m |= (1 << (31 - i)) >>> 0; }
+    return [(m >>> 24) & 255, (m >>> 16) & 255, (m >>> 8) & 255, m & 255];
+  };
+  // Real supported list from the car (26 Nov 2026). ECU 1 = engine (7E8), ECU 2 = gearbox (7E9) answers a subset.
+  const SUP = [0x01,0x04,0x05,0x0C,0x0D,0x0F,0x10,0x11,0x1C,0x1F,0x20,0x21,0x2F,0x30,0x31,0x33,0x40,0x42,0x45,0x46,0x49,0x4A,0x4C,0x51,0x5C,0x5E,0x60,0x61,0x62,0x63,0x65,0x67,0x69,0x6B,0x6D,0x70,0x71,0x77,0x78,0x7A,0x7F,0x80,0x83,0x85,0x88,0x8B,0x8C,0x8E,0x8F,0x9B,0x9C,0x9D,0x9E,0xA0,0xA2,0xA4,0xA5,0xA6,0xA7];
+  const SUP2 = [0x01, 0x04, 0x05, 0x0C, 0x0D, 0x20];
+  const rawBytes = (n) => Array(n).fill(0);
+  // Long PIDs the real car answers multi-frame (ISO-TP) from the engine ECU, and again from the gearbox ECU. Data bytes after "41 <pid>".
+  const LONG = { 0x69: 7, 0x70: 10, 0x71: 6, 0x78: 9, 0x7A: 7, 0x7F: 13, 0x83: 5, 0x85: 10, 0x88: 13, 0x8B: 7, 0x8C: 16, 0x8F: 5, 0x9C: 9, 0xA7: 8 };
+  function longData(pid) {
+    const n = LONG[pid], d = Array.from({ length: n }, (_, i) => (pid + i * 7) & 0x7F);   // recognisable filler, never 0xEE
+    if (pid === 0x8B) { d[0] = 0x01; d[1] = mock.dpfRegen ? 1 : 0; d[2] = Math.round(mock.dpfTrigPct * 255 / 100); d[3] = 0x00; d[4] = 0x1E; d[5] = 0x00; d[6] = 0x0F; }
+    if (pid === 0x78) { d[0] = 0x0F; for (let i = 0; i < 4; i++) { const v = Math.round((mock.egtC + i * 5 + 40) * 10); d[1 + i * 2] = v >> 8; d[2 + i * 2] = v & 255; } }
+    if (pid === 0x7A) { d[0] = 0x01; d[1] = 0x01; d[2] = 0xC2; }       // 4.5 kPa
+    return d;
+  }
+  function isoTp(pid, data) {   // ATH0 + ATS0: "00B" length line, then "0:" (6 data bytes) and "1:".. (7 each)
+    const all = [0x41, pid, ...data], lines = [all.length.toString(16).toUpperCase().padStart(3, '0')];
+    for (let i = 0, n = 0; i < all.length; n++) { const take = n === 0 ? 6 : 7; lines.push((n & 15).toString(16).toUpperCase() + ':' + hexb(...all.slice(i, i + take))); i += take; }
+    return lines;
+  }
+  function answer(c) {          // -> array of reply lines, one per answering ECU (ATH0, ATS0)
+    c = c.trim().toUpperCase();
+    if (c === 'ATZ') return ['ELM327 v2.2'];
+    if (c.startsWith('AT')) return [c === 'ATRV' ? mock.volt().toFixed(1) + 'V' : c === 'ATDPN' ? 'A6' : 'OK'];
+    const m = /^01([0-9A-F]{2})$/.exec(c);
+    if (m) {
+      const pid = parseInt(m[1], 16), sp = mock.speedKmh(), rpm = mock.rpm();
+      const head = '41' + m[1];
+      if (pid % 0x20 === 0) {
+        if (pid === 0) return ['4100981B8013', '410098180001'];       // verbatim from the real car
+        const l1 = hexb(...mask(pid, SUP)), l2 = hexb(...mask(pid, SUP2));
+        return SUP.some(p => p > pid && p <= pid + 0x20) ? [head + l1, head + l2] : [head + l1];
+      }
+      if (!SUP.includes(pid)) return ['NO DATA'];
+      if (LONG[pid]) return [...isoTp(pid, longData(pid)), ...isoTp(pid, Array(LONG[pid]).fill(0xEE))];   // engine ECU first, gearbox ECU's own multi-frame reply second
+      switch (pid) {
+        case 0x9B: return [head + '3F802C3A'];            // verbatim from the real car: DEF temp C-40, level D*100/255
+        case 0xA4: return [head + '01000000'];            // gear
+        case 0x77: return [head + '0352590000'];          // charge-air temps B-40, C-40
+        case 0x67: return [head + '016F00'];              // coolant sensor B-40
+        case 0xA2: return [head + '00EC'];                // fuel mg/stroke /32
+        case 0x04: return [head + hexb(mock.engine ? (mock.ov.load != null ? Math.round(mock.ov.load * 255 / 100) : 90) : 0)];
+        case 0x05: return [head + hexb(mock.coolantC + 40)];
+        case 0x0C: return [head + hexb((rpm * 4) >> 8, (rpm * 4) & 255)];
+        case 0x0D: return [head + hexb(sp)];
+        case 0x0F: return [head + hexb((mock.ov.iat != null ? mock.ov.iat : 20) + 40)];
+        case 0x11: return [head + hexb(mock.engine ? (mock.ov.throttle != null ? Math.round(mock.ov.throttle * 255 / 100) : 60) : 0)];
+        case 0x46: return [head + hexb((mock.ov.amb != null ? mock.ov.amb : 8) + 40)];
+        case 0x5C: return [head + hexb(mock.oilRaw != null ? mock.oilRaw : 88 + 40)];
+        case 0x5E: { const v = mock.engine ? Math.round((mock.ov.lph != null ? mock.ov.lph : 0.75 + sp * 0.05) * 20) : 0; return [head + hexb(v >> 8, v & 255)]; }
+        case 0x10: { const v = mock.engine ? 400 + sp * 10 : 0; return [head + hexb(v >> 8, v & 255)]; }
+        case 0x1F: return [head + hexb(0, 120)];
+        case 0x42: { const v = Math.round(mock.volt() * 1000); return [head + hexb(v >> 8, v & 255)]; }
+        case 0x51: return [head + hexb(4)];
+        case 0x1C: return [head + hexb(6)];
+        case 0x2F: { mock._f = (mock._f || 0) + 1; const t = (Date.now() - mock.t0) / 60000, drift = mock.engine ? mock.fuelBurn * t : 0;
+          const spike = mock.fuelSpike && mock._f % 4 === 0 ? (mock._f % 8 === 0 ? 1 : -1) * mock.fuelSpike : 0;
+          return [head + hexb(Math.max(0, Math.min(255, Math.round((mock.fuelPct - drift + spike) * 255 / 100))))]; }
+        case 0x33: return [head + hexb(100)];
+        default: return [head + hexb(...rawBytes(pid === 0x01 ? 4 : 2))];
+      }
+    }
+    if (c === '03') return mock.mode03 || ['4300', '4300'];                              // no codes, two ECUs: the old fake-C0300 bug
+    if (c === '07') return ['4700', '4700'];
+    if (c === '04') return ['44', '44'];
+    return ['NO DATA'];
+  }
+  class Port {
+    constructor() { this._q = []; this._wait = null; this._open = false; }
+    async open() {
+      mock.openAttempts++;
+      if (mock.asleep) throw new DOMException('Failed to open serial port.', 'NetworkError');
+      this._open = true;
+      const self = this;
+      this.readable = { getReader() { return {
+        read() { return new Promise(res => { if (self._q.length) res({ value: self._q.shift(), done: false }); else self._wait = res; }); },
+        releaseLock() {} }; } };
+      this.writable = { getWriter() { return {
+        async write(bytes) {
+          for (const c of new TextDecoder().decode(bytes).split('\r').filter(Boolean)) {
+            mock.log.push(c);
+            setTimeout(() => self._push(c + '\r' + answer(c).join('\r') + '\r\r>'), Math.max(1, Math.round(15 / mock.rate)));
+          }
+        }, releaseLock() {} }; } };
+    }
+    _push(s) { const v = new TextEncoder().encode(s); if (this._wait) { const w = this._wait; this._wait = null; w({ value: v, done: false }); } else this._q.push(v); }
+    async close() { this._open = false; }
+  }
+  return {mock, answer, newPort: () => new Port()};
+}
+// ---- simulation mode: virtual clock, scenarios, CSV replay, simulated phone GPS ----
+const KobdSim = SIM ? (function(){
+  const elm = kobdCreateElm(), mock = elm.mock; window.__mock = mock;
+  const rn = realNow, rp = performance.now.bind(performance);
+  let rate = 1, vBase = rn(), rBase = rn(), pBase = rp(), rpBase = rp();
+  const vnow = () => vBase + (rn() - rBase) * rate, vperf = () => pBase + (rp() - rpBase) * rate;
+  Date.now = vnow; performance.now = vperf;                                   // the whole app runs on the virtual clock (10x / 60x playback)
+  function setRate(r){ vBase = vnow(); rBase = rn(); pBase = vperf(); rpBase = rp(); rate = r; mock.rate = r; }
+  function setClock(ms){ vBase = ms; rBase = rn(); }
+
+  // ---- scenarios: step(t seconds since start, mock). Speeds in km/h. ----
+  const drive = (t, m, t0, v) => { m.engine = t >= t0; m.cruise = m.engine ? v : 0; };
+  const ramp = (t, t0, top) => Math.min(top, Math.max(0, (t - t0) * top / 60));
+  const SCEN = {
+    school:   { name: 'Cold-start school run', dur: 900, desc: 'Cold engine, 25 mph stop-start, engine off after 14 min.',
+      init(m){ m.coolantC = 18; m.fuelPct = 62; m.fuelBurn = 0.15; },
+      step(t, m){ const on = t >= 10 && t < 840, p = (t - 10) % 90; m.engine = on;
+        m.cruise = !on ? 0 : p < 15 ? 40 * p / 15 : p < 50 ? 40 : p < 65 ? 40 * (65 - p) / 15 : 0; m.coolantC = Math.min(88, 18 + Math.max(0, t - 10) * 0.09); } },
+    motorway: { name: 'Motorway', dur: 1200, desc: '70 mph cruise for 20 minutes, warm engine.',
+      init(m){ m.fuelPct = 70; m.fuelBurn = 0.1; }, step(t, m){ drive(t, m, 10, ramp(t, 10, 112)); } },
+    dpf:      { name: 'DPF regeneration', dur: 1200, desc: 'Motorway; the car starts a regen at 2 min (EGT 610 C) that lasts 10 min.',
+      init(m){ m.fuelPct = 70; m.dpfTrigPct = 96; },
+      step(t, m){ drive(t, m, 10, ramp(t, 10, 112)); const r = t >= 120 && t < 720; m.dpfRegen = r; m.egtC = r ? 610 : 300; m.dpfTrigPct = r ? 100 : t >= 720 ? 8 : 96; } },
+    hot:      { name: 'Hot coolant', dur: 600, desc: 'Coolant climbs to 109 C at 2 min, stays, falls back to 100 C after 5 min.',
+      init(m){ m.fuelPct = 70; }, step(t, m){ drive(t, m, 10, ramp(t, 10, 112)); m.coolantC = t < 90 ? 92 : t < 120 ? 92 + (t - 90) * 17 / 30 : t < 300 ? 109 : t < 360 ? 109 - (t - 300) * 9 / 60 : 100; } },
+    lowfuel:  { name: 'Low fuel', dur: 900, desc: 'Motorway with 9 % in the tank.',
+      init(m){ m.fuelPct = 9; m.fuelBurn = 0.4; }, step(t, m){ drive(t, m, 10, ramp(t, 10, 112)); } },
+    refuel:   { name: 'Refuel', dur: 420, desc: 'Drive at 20 %, engine off, tank filled to 95 %, drive on (auto fill-up detection).',
+      init(m){ m.fuelPct = 20; },
+      step(t, m){ const on = t >= 10 && t < 70 || t >= 170; m.engine = on; m.cruise = on ? 80 : 0; if (t >= 100) m.fuelPct = 95; } },
+    restart:  { name: 'Engine stop / restart', dur: 420, desc: 'Drive, 95 s stop, restart (same trip), drive, off.',
+      init(m){ m.fuelPct = 60; }, step(t, m){ const on = t >= 10 && t < 120 || t >= 215 && t < 335; m.engine = on; m.cruise = on ? 90 : 0; } },
+    asleep:   { name: 'Adapter asleep', dur: 300, desc: 'The iCar2 is asleep for the first 20 s: Connect fails with the asleep message, then works.',
+      init(m){ m.asleep = true; m.fuelPct = 60; }, step(t, m){ m.asleep = t < 20; drive(t, m, 30, 60); } },
+    weak:     { name: 'Weak battery', dur: 300, desc: 'Rests at 11.8 V, cranking dips to 8.9 V, charges at only 12.4 V.',
+      init(m){ m.restVolt = 11.8; m.crankV = 8.9; m.runV = 12.4; m.crankLen = 9000; m.fuelPct = 60; }, step(t, m){ drive(t, m, 15, 50); } },
+  };
+  const DEFAULTS = { engine: false, cruise: 0, coolantC: 90, fuelPct: 60, fuelBurn: 0, fuelSpike: 0, dpfRegen: false, dpfTrigPct: 62, egtC: 280, asleep: false, restVolt: 12.4,
+                     crankUntil: 0, crankV: null, runV: null, crankLen: 2500, oilRaw: null, mode03: null, hasRun: false };
+  const S = { id: sessionStorage.getItem('kobd_simScen') || 'school', t0: null, running: false, rep: null, rows: null, info: '' };
+  function resetMock(){ Object.assign(mock, DEFAULTS); mock.ov = {}; mock.t0 = vnow(); }
+
+  // ---- replay of a CSV log written by this app (t = ISO time; optional lat/lon; gpsKmh / alt used when present) ----
+  const NUM = ['speed','rpm','throttle','load','coolant','oil','iat','amb','volt','lph','egt','dpfTrig','regen','fuel','gpsKmh','alt','lat','lon'];
+  function parseCsv(text){
+    const lines = text.split(/\r?\n/).filter(l => l.trim()), head = lines.shift().split(',').map(h => h.trim());
+    const alias = { latitude: 'lat', lng: 'lon', longitude: 'lon' }, idx = {};
+    head.forEach((h, i) => { idx[alias[h.toLowerCase()] || h] = i; });
+    if (idx.t == null) throw new Error('no "t" (time) column');
+    const rows = [];
+    for (const l of lines){ const c = l.split(','), t = Date.parse(c[idx.t]); if (!isFinite(t)) continue;
+      const r = { t }; for (const k of NUM){ const v = idx[k] == null ? NaN : parseFloat(c[idx[k]]); r[k] = isFinite(v) ? v : null; } rows.push(r); }
+    rows.sort((a, b) => a.t - b.t);
+    if (rows.length < 2) throw new Error('need at least 2 rows');
+    return rows;
+  }
+  function loadCsv(text){
+    const rows = parseCsv(text); S.rows = rows; S.id = 'replay';
+    const gps = rows.some(r => r.lat != null && r.lon != null);
+    S.info = `${rows.length} rows, ${Math.round((rows[rows.length-1].t - rows[0].t) / 60000)} min, ${gps ? 'with' : 'no'} GPS positions`;
+    if (S.running) start(); return { rows: rows.length, gps, info: S.info };
+  }
+  function rowAt(ms){
+    const R = S.rows; if (ms <= R[0].t) return R[0]; if (ms >= R[R.length-1].t) return null;
+    let lo = 0, hi = R.length - 1; while (hi - lo > 1){ const mid = (lo + hi) >> 1; if (R[mid].t <= ms) lo = mid; else hi = mid; }
+    const a = R[lo], b = R[hi], f = (ms - a.t) / (b.t - a.t || 1), o = { t: ms };
+    for (const k of NUM) o[k] = a[k] == null || b[k] == null ? a[k] : a[k] + (b[k] - a[k]) * f;
+    o.regen = a.regen; return o;
+  }
+  function applyRow(r){
+    if (!r){ mock.engine = false; mock.ov = {}; S.rep = 'done'; return; }
+    const o = mock.ov; mock.engine = (r.rpm || 0) > 300; mock.hasRun = true;
+    o.speed = r.speed; o.rpm = r.rpm; o.throttle = r.throttle; o.load = r.load; o.iat = r.iat; o.amb = r.amb; o.lph = r.lph; o.volt = r.volt;
+    if (r.coolant != null) mock.coolantC = r.coolant; mock.oilRaw = r.oil != null ? Math.round(r.oil) + 40 : null; if (r.fuel != null) mock.fuelPct = r.fuel;
+    if (r.egt != null) mock.egtC = r.egt; if (r.dpfTrig != null) mock.dpfTrigPct = r.dpfTrig; mock.dpfRegen = (r.regen || 0) > 0.5;
+  }
+
+  // ---- simulated phone GPS: due north from Bristol, hill after 100 m (as the test mock), or the log's own positions ----
+  const LAT0 = 51.4545, LON0 = -2.5879, BEND = 600;
+  const G = { dist: 0, watchers: new Map(), id: 1, last: null, emit: 0, cur: null };
+  function gpsFix(acc){
+    const c = G.cur, d = G.dist, n = Math.min(d, BEND), lat0 = LAT0 + n / 111320;
+    const lat = c && c.lat != null ? c.lat : lat0, lon = c && c.lon != null ? c.lon : LON0 + Math.max(0, d - BEND) / (111320 * Math.cos(lat0 * Math.PI / 180));
+    const alt = c && c.alt != null ? c.alt : 50 + (d < 100 ? 0 : d < 400 ? (d - 100) * 0.06 : 18);
+    const spd = c && c.gpsKmh != null ? c.gpsKmh / 3.6 : mock.speedKmh() / 3.6;
+    return { coords: { latitude: lat, longitude: lon, accuracy: acc || 8, altitude: alt, altitudeAccuracy: 6, speed: spd, heading: d > BEND ? 90 : 0 }, timestamp: vnow() };
+  }
+  const geo = {
+    watchPosition(ok){ const id = G.id++; G.watchers.set(id, ok); return id; },
+    clearWatch(id){ G.watchers.delete(id); },
+    getCurrentPosition(ok){ setTimeout(() => ok(gpsFix(8)), 20); },
+  };
+  try { Object.defineProperty(navigator, 'geolocation', { value: geo, configurable: true }); } catch (e) {}
+  try { Object.defineProperty(navigator, 'permissions', { value: { query: async () => ({ state: 'granted', onchange: null, addEventListener(){} }) }, configurable: true }); } catch (e) {}
+
+  // ---- the ticker ----
+  let prevEngine = false;
+  function tick(){
+    const now = vnow();
+    if (S.running){
+      if (S.rep && S.rows){ const r = rowAt(now); applyRow(r); G.cur = r; }
+      else if (SCEN[S.id]){ const t = (now - S.t0) / 1000; SCEN[S.id].step(t, mock); G.cur = null; }
+    }
+    if (mock.engine && !prevEngine) mock.crankUntil = now + mock.crankLen;       // starter dip on every start
+    prevEngine = mock.engine;
+    const dt = G.last == null ? 0 : Math.min(30, (now - G.last) / 1000); G.last = now;
+    if (!(G.cur && G.cur.lat != null)) G.dist += (mock.engine ? mock.speedKmh() / 3.6 : 0) * dt;
+    if (now - G.emit >= 1000 && S.running){ G.emit = now; for (const ok of G.watchers.values()) ok(gpsFix(8)); }
+  }
+  setInterval(tick, 40);
+
+  function start(){
+    resetMock(); G.dist = 0; G.last = null; G.emit = 0; prevEngine = false;
+    if (S.id === 'replay' && S.rows){ S.rep = true; S.running = true; setClock(S.rows[0].t); }
+    else { if (!SCEN[S.id]) S.id = 'school'; S.rep = null; SCEN[S.id].init(mock); S.t0 = vnow(); S.running = true; }
+  }
+  const sim = {
+    scenarios: Object.fromEntries(Object.entries(SCEN).map(([k, v]) => [k, { name: v.name, desc: v.desc }])),
+    get id(){ return S.id; }, get rate(){ return rate; }, get running(){ return S.running; }, get replayInfo(){ return S.info; },
+    select(id){ S.id = id; try { sessionStorage.setItem('kobd_simScen', id); } catch (e) {} if (S.running) start(); },
+    setRate, loadCsv, restart: start,
+    requestPort(){ if (!S.running) start(); return Promise.resolve(elm.newPort()); },
+    status(){ const t = S.running ? Math.round((vnow() - (S.rep && S.rows ? S.rows[0].t : S.t0)) / 1000) : 0;
+      const name = S.id === 'replay' ? 'Replay (' + S.info + ')' : (SCEN[S.id] || {}).name;
+      return !S.running ? name + ': starts when you tap Connect.' : name + ' · ' + Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0') + ' simulated · ' + rate + '×' + (S.rep === 'done' ? ' · replay finished' : ''); },
+    elm, mock,
+  };
+  return sim;
+})() : null;
+</script>
 <link rel="icon" href="icon.svg">
 <style>
   /* ===== v6 design tokens ===== */
@@ -228,6 +489,12 @@
   :root[data-theme=night] .limit .rnd{filter:brightness(.82)}
   /* narrow speed tile (landscape phones): no room beside the digits, so a small roundel sits in the top-right corner and the caption drops (aria-label + Car tab keep the 'may be wrong' note) */
   @container (max-width:300px){ .limit{--d:min(40px,26cqh);top:6px;right:8px;transform:none} .limit small{display:none} }
+  /* simulation banner: its own strip under the header; the tab area shrinks by --simh */
+  #simBar{display:none;position:absolute;left:0;right:0;top:calc(var(--hdr) + env(safe-area-inset-top));height:var(--simh,0px);z-index:5;background:var(--warn);color:var(--onacc);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;line-height:20px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px}
+  body.sim{--simh:20px} body.sim #simBar{display:block}
+  body.sim main{top:calc(var(--hdr) + env(safe-area-inset-top) + var(--simh))}
+  body.sim header{border-bottom:2px solid var(--warn)}
+  #devMenu label{display:flex;gap:8px;align-items:center;margin:6px 0;font-size:var(--fs-s);color:var(--mut)} #devMenu select,#devMenu input[type=file]{flex:1;min-width:0;font:inherit;padding:8px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--bg);color:var(--txt)}
   /* other screens: fixed-height tile grids that reflow by width */
   .grid{display:grid;gap:var(--gap);grid-template-columns:repeat(auto-fill,minmax(150px,1fr));grid-auto-rows:96px;margin-bottom:12px}
   .grid .wide{grid-column:1/-1}
@@ -331,6 +598,7 @@
   </button>
 </header>
 
+<div id="simBar" role="status">Simulation · simulated car · kept apart from your real data</div>
 <main>
   <div id="asleep" role="alert" aria-live="assertive">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>
@@ -491,6 +759,7 @@
   <!-- LOG -->
   <div class="pane" id="p_log">
     <div class="cols">
+      <section id="devMenu" style="display:none"></section>
       <section>
         <h2>Trip log</h2>
         <div class="row"><button id="btnCsv" disabled>Download CSV</button></div>
@@ -520,7 +789,7 @@ const $ = id => document.getElementById(id);
 const enc = new TextEncoder(), dec = new TextDecoder();
 let port, reader, writer, buf = '', running = false, demo = false;
 let samples = [], latest = {}, lastLog = 0;
-const supported = 'serial' in navigator;
+const supported = SIM || 'serial' in navigator;
 if (!supported) $('nosupport').style.display = 'block';
 
 function log(s){ const p=$('log'); p.textContent += s + '\n'; if (p.textContent.length>8000) p.textContent=p.textContent.slice(-6000); p.scrollTop=p.scrollHeight; }
@@ -535,11 +804,11 @@ function ui(connected){
 
 // ---------- ELM327 transport ----------
 async function readUntilPrompt(timeout=2500){
-  const t0 = Date.now();
+  const t0 = realNow();
   while (true){
     const i = buf.indexOf('>');
     if (i >= 0){ const out = buf.slice(0,i); buf = buf.slice(i+1); return out; }
-    if (Date.now()-t0 > timeout) throw new Error('timeout');
+    if (realNow()-t0 > timeout) throw new Error('timeout');
     const r = await Promise.race([reader.read(), new Promise(res=>setTimeout(()=>res({timeout:true}), timeout))]);
     if (r.timeout) throw new Error('timeout');
     if (r.done) throw new Error('port closed');
@@ -621,8 +890,8 @@ const DIESEL_AFR = 14.5, DIESEL_KG_PER_L = 0.832;
 let supportedPids = new Set(), fuelMethod = null;
 let trip = {km:0, L:0, idleL:0, t0:null}, lastInt = null, curLph = null;
 const store = {
-  get(k,d){ try{ const v = localStorage.getItem('kobd_'+k); return v==null ? d : JSON.parse(v); }catch{ return d; } },
-  set(k,v){ try{ localStorage.setItem('kobd_'+k, JSON.stringify(v)); }catch{} }
+  get(k,d){ try{ const v = localStorage.getItem(KP+k); return v==null ? d : JSON.parse(v); }catch{ return d; } },
+  set(k,v){ try{ localStorage.setItem(KP+k, JSON.stringify(v)); }catch{} }
 };
 let cal = store.get('cal', 1.0);                     // multiplier: pump litres / OBD litres
 let sinceFill = store.get('sinceFill', {km:0, L:0});  // raw (uncalibrated) since last brim
@@ -1058,7 +1327,7 @@ async function loop(){
 // =====================================================================
 // HEALTH SCAN + LEARNING MODE
 // =====================================================================
-const APP_VERSION = '6.1.0';
+const APP_VERSION = '6.1.1';
 // confident decoders for standard mode-01 PIDs (anything else is stored as raw hex)
 const DEC = {
   '04':['Engine load','%',b=>b[0]*100/255], '05':['Coolant','°C',b=>tempC(b[0])], '0B':['Intake manifold pressure','kPa',b=>b[0]],
@@ -1386,7 +1655,7 @@ async function connect(){
   showAsleep(false); openFailed = false;
   try{
     setStatus('Choose the adapter…','busy');
-    port = await navigator.serial.requestPort({ allowedBluetoothServiceClassIds:[SPP], filters:[{bluetoothServiceClassId:SPP}] });
+    port = SIM ? await KobdSim.requestPort() : await navigator.serial.requestPort({ allowedBluetoothServiceClassIds:[SPP], filters:[{bluetoothServiceClassId:SPP}] });
     for (let i=1;;i++){ try{ await port.open({ baudRate: 38400 }); break; } catch(e){ if (i>=3){ openFailed = true; throw e; } log('Open attempt '+i+' failed, retrying… (press the iCar2 button if its light is off)'); setStatus('Waking adapter… press its button','busy'); await new Promise(r=>setTimeout(r,2000)); } }
     samples = samples.filter(s=>!s.demo); $('btnCsv').disabled = !samples.length; $('logInfo').textContent = samples.length ? samples.length+' samples. Logs ~1 sample/second while connected.' : '0 samples. Logs ~1 sample/second while connected.';   // nothing demo-made stays when a real connection starts
     writer = port.writable.getWriter(); reader = port.readable.getReader(); buf=''; fuelReset();
@@ -1768,9 +2037,9 @@ function loadTile(a,b){
 }
 function storeTile(k, t){
   const idx = store.get('osm_idx', []).filter(x=>x!==k); idx.push(k);
-  while (idx.length > 8){ try{ localStorage.removeItem('kobd_osm_'+idx.shift()); }catch{} }
-  try{ localStorage.setItem('kobd_osm_'+k, JSON.stringify(t)); store.set('osm_idx', idx); }
-  catch{ while (idx.length > 1){ try{ localStorage.removeItem('kobd_osm_'+idx.shift()); localStorage.setItem('kobd_osm_'+k, JSON.stringify(t)); store.set('osm_idx', idx); break; }catch{} } }   // quota: drop oldest tiles
+  while (idx.length > 8){ try{ localStorage.removeItem(KP+'osm_'+idx.shift()); }catch{} }
+  try{ localStorage.setItem(KP+'osm_'+k, JSON.stringify(t)); store.set('osm_idx', idx); }
+  catch{ while (idx.length > 1){ try{ localStorage.removeItem(KP+'osm_'+idx.shift()); localStorage.setItem(KP+'osm_'+k, JSON.stringify(t)); store.set('osm_idx', idx); break; }catch{} } }   // quota: drop oldest tiles
 }
 function prefetchNear(f,a,b){
   const fy = (f.lat/0.02 - a), fx = (f.lon/0.03 - b), da = fy < 0.15 ? -1 : fy > 0.85 ? 1 : 0, db = fx < 0.15 ? -1 : fx > 0.85 ? 1 : 0;
@@ -1864,6 +2133,45 @@ let _hintT; function setStatusHint(t){ const el = $('status'), keep = el.textCon
 function setBig(on){ $('p_drive').classList.toggle('big', on); $('btnBig').setAttribute('aria-pressed', on); store.set('big', on); }
 $('btnBig').onclick = ()=>setBig(!$('p_drive').classList.contains('big'));
 setBig(!!store.get('big', false));
+
+// ---------- developer menu + simulator (tap the version 5 times) ----------
+(function(){
+  const dm = $('devMenu'); document.body.classList.toggle('sim', SIM); if (SIM) document.title = 'SIMULATION · ' + document.title;
+  function leave(){ try{ for (const k of Object.keys(localStorage)) if (k.indexOf('kobd_sim_') === 0) localStorage.removeItem(k); sessionStorage.removeItem('kobd_simMode'); sessionStorage.removeItem('kobd_simScen'); }catch{} location.reload(); }
+  function build(){
+    if (!SIM){
+      dm.innerHTML = `<h2>Developer</h2><div class="note">Simulated car: the real app runs against a built-in fake car (scenarios, or replay of a CSV log). Everything it saves is kept apart from your real trips and learning and is deleted when you leave simulation.</div><div class="row" style="margin-top:10px"><button id="simEnter">Enter simulation mode</button></div>`;
+      $('simEnter').onclick = ()=>{ try{ sessionStorage.setItem('kobd_simMode','1'); }catch{} location.reload(); };
+      return;
+    }
+    const opts = Object.entries(KobdSim.scenarios).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join('') + '<option value="replay">Replay a CSV log…</option>';
+    dm.innerHTML = `<h2>Simulator</h2>
+      <label>Scenario <select id="simScen">${opts}</select></label>
+      <div class="note" id="simDesc"></div>
+      <label>Speed <select id="simRate"><option value="1">1×</option><option value="10">10×</option><option value="60">60×</option></select></label>
+      <label>Replay <input type="file" id="simFile" accept=".csv,text/csv" aria-label="CSV log to replay"></label>
+      <div class="note" id="simStat"></div>
+      <div class="row" style="margin-top:10px"><button id="simRestart">Restart</button><button class="danger" id="simLeave">Leave simulation</button></div>
+      <p class="note">Tap Connect (header) to start. Replay takes the CSV this app exports (columns t, speed, rpm …; lat/lon or gpsKmh/alt optional) and plays it through the same pipeline.</p>`;
+    $('simScen').value = KobdSim.id; $('simRate').value = String(KobdSim.rate);
+    const desc = ()=>{ $('simDesc').textContent = KobdSim.id==='replay' ? (KobdSim.replayInfo || 'Choose a CSV file below.') : KobdSim.scenarios[KobdSim.id].desc; };
+    $('simScen').onchange = e=>{ KobdSim.select(e.target.value); desc(); };
+    $('simRate').onchange = e=>KobdSim.setRate(+e.target.value);
+    $('simRestart').onclick = ()=>KobdSim.restart();
+    $('simLeave').onclick = leave;
+    $('simFile').onchange = async e=>{ const f = e.target.files[0]; if (!f) return;
+      try{ const r = KobdSim.loadCsv(await f.text()); $('simScen').value = 'replay'; setStatusHint('Replay loaded: '+r.rows+' rows'); }catch(err){ $('simDesc').textContent = 'Could not read that file: '+err.message; return; } desc(); };
+    desc(); setInterval(()=>{ $('simStat').textContent = KobdSim.status(); }, 500);
+  }
+  build();
+  const unlocked = ()=>{ try{ return SIM || sessionStorage.getItem('kobd_dev')==='1'; }catch{ return SIM; } };
+  const show = ()=>{ dm.style.display = unlocked() ? '' : 'none'; };
+  let taps = [];
+  function tap(){ const n = realNow(); taps = taps.filter(t=>n-t < 4000); taps.push(n);
+    if (taps.length >= 5 && !unlocked()){ try{ sessionStorage.setItem('kobd_dev','1'); }catch{} show(); document.querySelector('nav button[data-p="log"]').click(); setStatusHint('Developer menu unlocked'); } }
+  for (const id of ['ver','verNote']) $(id).addEventListener('click', tap);
+  show();
+})();
 
 // ---------- tabs ----------
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{

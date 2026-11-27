@@ -59,6 +59,11 @@ Web Serial (Bluetooth SPP) in Chrome on Android. Offline via `sw.js`. Own git re
 - Layout: the roundel must never overlap the speed digits or leave the speed tile at any tested viewport (test_layouts + test_readability "speed limit"/"big + limit" states).
 - Tests: `test_gps.py`, `test_gps_degrade.py`, `test_model.py`; `common.app(gps=..., net=...)` stubs the network (Overpass/weather), `overpass_fixture()`, `WEATHER`; mock GPS in `mock-adapter.js` (`window.__MOCK_GPS`, `__mock.gps`: hill, limit change, dropout, coarse, permission states).
 
+## v6.1.1 Stage 2.5: on-device simulator
+- Unlock: tap the version (Log tab footer / header) 5x -> Developer section -> "Enter simulation mode" (sets `sessionStorage kobd_simMode`, reloads). `SIM`/`KP` globals come from a prelude script: in sim every `store`/osm key uses `kobd_sim_` (real keys untouched; head-script `loc` also follows `KP`). Any normal start, and "Leave simulation", deletes all `kobd_sim_*`. A "SIMULATION" strip (`#simBar`, `--simh`) shows under the header.
+- `kobdCreateElm()` is a COPY of tests/mock-adapter.js's ELM327 core (+ `mock.ov` overrides, `crankV/runV/crankLen`, `mock.rate`). `tests/test_sim.py` compares both for 176 commands: change one, change the other. `KobdSim` (sim only) adds the virtual clock (`Date.now`/`performance.now` run at 1x/10x/60x; transport timeouts use `realNow`), scenarios (school, motorway, dpf, hot, lowfuel, refuel, restart, asleep, weak), CSV replay (`t` ISO + the columns this app exports; optional `lat`/`lon`; `gpsKmh`/`alt` used if present) and simulated GPS (`navigator.geolocation`/`permissions` replaced in sim).
+- Connect in sim runs the real code path (`KobdSim.requestPort()` returns a Port to the bundled ELM core). Scenario starts at the first Connect and keeps running across Stop/Connect; "Restart" resets. The app's CSV export has no lat/lon, so replays of this app's own logs get a synthetic GPS route.
+
 ## Fuel & range (v6.0.2)
 - Litres left = PID 2F % x tank (setting `kobd_tank`, 50-70 L, default 58). Rolling median ~90 s, samples skipped while |accel| > 2 m/s^2. Range basis: see the layout section above.
 - Auto fill-up: level +10 points (vs last session, or vs the lowest of the last 10 min) -> `kobd_fillPending`; the Drive card appears only after 8 s stationary. A fill to >= 92 % with a receipt feeds `recordFill()` (pump calibration); smaller top-ups are only logged. Demo never writes fuel data.
@@ -81,6 +86,7 @@ Never push without OK. Everything stays on-device: no logos/images from the web,
 - `tests/test_readability.py`: the hard readability floors above, 11 viewports x 8 states (incl. hot coolant) x 2 themes.
 - `tests/test_isotp.py`: ISO-TP parser (spaces/no spaces, two ECUs), all 14 long PIDs through the mock, DPF/EGT/dP decode, health scan (nothing silent), experimental decoders, AdBlue tile, coolant rule, battery-reading message.
 - `tests/test_robust.py`: tempC / 0xFF / >150 C never shown or learned, short-stop trip merging (+ stops list), demo samples out of the CSV, cranking-dip voltage kept apart.
+- `tests/test_sim.py`: dev-menu unlock, sim isolation (real storage byte-identical), all 9 scenarios through the real pipeline at 60x, CSV replay with GPS, leaving simulation, bundled ELM core == tests mock.
 - `tests/test_v604.py`: visualViewport sizing, idle/last-trip/last-known after Stop + Demo, hint row, hot-coolant hysteresis in every mode.
 - `tests/test_engine_cycle.py`: off -> connect -> on -> off 30s+ (paused) -> on (same trip) -> off past the merge window (saved once, 2 stops) -> on (new trip); pre-start battery, auto health scan. ~1.5 min (real timers).
 - `tests/run.sh` runs all; `FAST=1 tests/run.sh` skips the engine cycle.
